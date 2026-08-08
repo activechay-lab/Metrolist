@@ -104,8 +104,13 @@ import com.metrolist.music.constants.AudioNormalizationKey
 import com.metrolist.music.constants.AudioOffload
 import com.metrolist.music.constants.AudioQualityKey
 import com.metrolist.music.constants.AudioTrackPlaybackParamsKey
+import com.metrolist.music.constants.AutoBlacklistOnSkipKey
+import com.metrolist.music.constants.AutoBlacklistSkipThresholdKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
+import com.metrolist.music.constants.AutoLikeCompletionThresholdKey
+import com.metrolist.music.constants.AutoLikeOnCompletionKey
 import com.metrolist.music.constants.AutoLoadMoreKey
+import com.metrolist.music.constants.FastSkipThresholdSecondsKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
 import com.metrolist.music.constants.StreamSourceAndroidVRKey
 import com.metrolist.music.constants.StreamSourceTVHTML5Key
@@ -1756,6 +1761,91 @@ class MusicService :
         }
     }
 
+    /**
+     * Records a natural playback completion for [songId] and auto-likes it
+     * the moment it FIRST reaches [AUTO_LIKE_COMPLETION_THRESHOLD] completions,
+     * if it isn't already liked. Fires exactly once per song (exact-count
+     * match, not a floor) so that manually unliking it afterwards sticks
+     * instead of being overwritten on the next completion. Runs on the
+     * database's query executor, so it's safe to call from playback-analytics
+     * callbacks.
+     */
+    private fun autoLikeOnCompletion(songId: String) {
+        if (!dataStore.get(AutoLikeOnCompletionKey, true)) return
+        val threshold = dataStore.get(AutoLikeCompletionThresholdKey, AUTO_LIKE_COMPLETION_THRESHOLD)
+        database.query {
+            val completions =
+                try {
+                    recordSongCompletion(songId)
+                } catch (_: SQLException) {
+                    return@query
+                }
+            if (completions != threshold) return@query
+            val songEntity = songEntityOrNull(songId) ?: return@query
+            if (songEntity.liked || songEntity.isEpisode) return@query
+
+            val liked = songEntity.toggleLike()
+            update(liked)
+
+            Handler(Looper.getMainLooper()).post {
+                if (player.currentMediaItem?.mediaId == songId) {
+                    updateNotification(isLiked = liked.liked)
+                    updateWidgetUI(player.isPlaying, isLiked = liked.liked)
+                }
+            }
+        }
+    }
+
+    /**
+     * Records a fast skip (abandoned within [FAST_SKIP_THRESHOLD_MS], never
+     * reached the end) for [songId] and blacklists it the moment it FIRST
+     * reaches [AUTO_BLACKLIST_SKIP_THRESHOLD] fast skips, unless it's already
+     * liked (an explicit like is a stronger, more deliberate signal than a
+     * couple of quick skips, so it wins). Fires exactly once per song. Runs
+     * on the database's query executor.
+     */
+    private fun recordSkipAndMaybeBlacklist(songId: String) {
+        if (!dataStore.get(AutoBlacklistOnSkipKey, true)) return
+        val threshold = dataStore.get(AutoBlacklistSkipThresholdKey, AUTO_BLACKLIST_SKIP_THRESHOLD)
+        database.query {
+            val skips =
+                try {
+                    recordSongSkip(songId)
+                } catch (_: SQLException) {
+                    return@query
+                }
+            if (skips != threshold) return@query
+            val songEntity = songEntityOrNull(songId) ?: return@query
+            if (songEntity.liked || songEntity.blacklisted || songEntity.isEpisode) return@query
+
+            blacklistSong(songId)
+        }
+    }
+
+    /**
+     * If [songId] is blacklisted, skips past it as soon as it becomes the
+     * current item — regardless of how it entered the queue (radio, an
+     * existing playlist, shuffle, or a manual add). The blacklist check is
+     * async, so a blacklisted song may play for a brief moment before this
+     * skips it. A liked song is never skipped here even if its blacklisted
+     * flag is somehow still set (belt-and-suspenders on top of liked/
+     * blacklisted being kept mutually exclusive at write time).
+     */
+    private fun skipIfBlacklisted(songId: String) {
+        scope.launch(Dispatchers.IO) {
+            val song = database.songEntityOrNull(songId)
+            if (song == null || !song.blacklisted || song.liked) return@launch
+            withContext(Dispatchers.Main) {
+                if (player.currentMediaItem?.mediaId != songId) return@withContext
+                if (player.hasNextMediaItem()) {
+                    player.seekToNextMediaItem()
+                } else {
+                    player.pause()
+                }
+            }
+        }
+    }
+
     fun playQueue(
         queue: Queue,
         playWhenReady: Boolean = true,
@@ -2484,6 +2574,7 @@ class MusicService :
             }
         }
         lastTransitionedMediaId = mediaItem?.mediaId
+        mediaItem?.mediaId?.let(::skipIfBlacklisted)
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
         initialBufferRecoveryAttemptedMediaId = null
@@ -3986,6 +4077,20 @@ class MusicService :
             }
         }
 
+        if (playbackStats.endedCount > 0) {
+            autoLikeOnCompletion(mediaItem.mediaId)
+        } else {
+            // Moving to an earlier position in the queue (pressing "previous",
+            // jumping back to something already played) is navigation, not a
+            // rejection of the song being left — never count it as a fast skip.
+            val wentBackward = eventTime.windowIndex > player.currentMediaItemIndex
+            val fastSkipThresholdMs =
+                dataStore.get(FastSkipThresholdSecondsKey, (FAST_SKIP_THRESHOLD_MS / 1000L).toInt()) * 1000L
+            if (!wentBackward && playbackStats.totalPlayTimeMs < fastSkipThresholdMs) {
+                recordSkipAndMaybeBlacklist(mediaItem.mediaId)
+            }
+        }
+
         if (playbackStats.totalPlayTimeMs >= historyDurationMs) {
             scope.launch(Dispatchers.IO) {
                 val playbackUrl =
@@ -4920,6 +5025,9 @@ class MusicService :
 
         const val CHANNEL_ID = "music_channel_01"
         const val NOTIFICATION_ID = 888
+        const val AUTO_LIKE_COMPLETION_THRESHOLD = 2
+        const val FAST_SKIP_THRESHOLD_MS = 10_000L
+        const val AUTO_BLACKLIST_SKIP_THRESHOLD = 2
         const val ERROR_CODE_NO_STREAM = 1000001
         const val CHUNK_LENGTH = 512 * 1024L
         const val PERSISTENT_QUEUE_FILE = "persistent_queue.data"

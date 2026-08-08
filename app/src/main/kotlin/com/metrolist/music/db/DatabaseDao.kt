@@ -1563,6 +1563,66 @@ interface DatabaseDao {
     fun incrementPlayCount(songId: String, year: Int, month: Int)
 
     /**
+     * Records that [songId] was played to completion (reached the end of
+     * playback naturally) and returns the song's updated completion count.
+     */
+    @Transaction
+    fun recordSongCompletion(songId: String): Int {
+        upsertSongCompletion(songId)
+        return getSongCompletionCount(songId)
+    }
+
+    @Query(
+        """
+        INSERT INTO song_completion (songId, count)
+        VALUES (:songId, 1)
+        ON CONFLICT(songId) DO UPDATE SET count = count + 1
+        """,
+    )
+    fun upsertSongCompletion(songId: String)
+
+    @Query("SELECT count FROM song_completion WHERE songId = :songId")
+    fun getSongCompletionCountOrNull(songId: String): Int?
+
+    fun getSongCompletionCount(songId: String): Int = getSongCompletionCountOrNull(songId) ?: 0
+
+    @Query("SELECT * FROM song WHERE id = :songId")
+    fun songEntityOrNull(songId: String): SongEntity?
+
+    /**
+     * Records that [songId] was skipped quickly (abandoned early, not
+     * completed) and returns the song's updated fast-skip count.
+     */
+    @Transaction
+    fun recordSongSkip(songId: String): Int {
+        upsertSongSkip(songId)
+        return getSongSkipCountOrNull(songId) ?: 0
+    }
+
+    @Query(
+        """
+        INSERT INTO song_skip (songId, count)
+        VALUES (:songId, 1)
+        ON CONFLICT(songId) DO UPDATE SET count = count + 1
+        """,
+    )
+    fun upsertSongSkip(songId: String)
+
+    @Query("SELECT count FROM song_skip WHERE songId = :songId")
+    fun getSongSkipCountOrNull(songId: String): Int?
+
+    // Mutually exclusive with liked: blacklisting always clears any existing like.
+    @Query("UPDATE song SET blacklisted = 1, blacklistedDate = :blacklistedDate, liked = 0, likedDate = NULL WHERE id = :songId")
+    fun blacklistSong(songId: String, blacklistedDate: LocalDateTime = LocalDateTime.now())
+
+    @Query("UPDATE song SET blacklisted = 0, blacklistedDate = NULL WHERE id = :songId")
+    fun unblacklistSong(songId: String)
+
+    @Transaction
+    @Query("SELECT * FROM song WHERE blacklisted ORDER BY blacklistedDate DESC")
+    fun blacklistedSongs(): Flow<List<Song>>
+
+    /**
      * Increment by one the play count with today's year and month.
      */
     fun incrementPlayCount(songId: String) {
