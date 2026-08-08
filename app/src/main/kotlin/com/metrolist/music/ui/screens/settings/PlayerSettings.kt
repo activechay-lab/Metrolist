@@ -41,7 +41,12 @@ import com.metrolist.music.constants.AudioOffload
 import com.metrolist.music.constants.AudioTrackPlaybackParamsKey
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
+import com.metrolist.music.constants.AutoBlacklistOnSkipKey
+import com.metrolist.music.constants.AutoBlacklistSkipThresholdKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
+import com.metrolist.music.constants.AutoLikeCompletionThresholdKey
+import com.metrolist.music.constants.AutoLikeOnCompletionKey
+import com.metrolist.music.constants.FastSkipThresholdSecondsKey
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
 import com.metrolist.music.constants.CrossfadeGaplessKey
@@ -221,6 +226,26 @@ fun PlayerSettings(
     val (historyDuration, onHistoryDurationChange) = rememberPreference(
         HistoryDuration,
         defaultValue = 30f
+    )
+    val (autoLikeOnCompletion, onAutoLikeOnCompletionChange) = rememberPreference(
+        AutoLikeOnCompletionKey,
+        defaultValue = true
+    )
+    val (autoLikeCompletionThreshold, onAutoLikeCompletionThresholdChange) = rememberPreference(
+        AutoLikeCompletionThresholdKey,
+        defaultValue = 2
+    )
+    val (autoBlacklistOnSkip, onAutoBlacklistOnSkipChange) = rememberPreference(
+        AutoBlacklistOnSkipKey,
+        defaultValue = true
+    )
+    val (autoBlacklistSkipThreshold, onAutoBlacklistSkipThresholdChange) = rememberPreference(
+        AutoBlacklistSkipThresholdKey,
+        defaultValue = 2
+    )
+    val (fastSkipThresholdSeconds, onFastSkipThresholdSecondsChange) = rememberPreference(
+        FastSkipThresholdSecondsKey,
+        defaultValue = 10
     )
 
     var showAudioQualityDialog by remember {
@@ -565,6 +590,111 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { onSeekExtraSeconds(!seekExtraSeconds) }
+                ))
+            }
+        )
+
+        Spacer(modifier = Modifier.height(27.dp))
+
+        Material3SettingsGroup(
+            title = stringResource(R.string.smart_automation),
+            items = buildList {
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.favorite),
+                    title = { Text(stringResource(R.string.auto_like_on_completion)) },
+                    description = { Text(stringResource(R.string.auto_like_on_completion_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = autoLikeOnCompletion,
+                            onCheckedChange = onAutoLikeOnCompletionChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (autoLikeOnCompletion) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onAutoLikeOnCompletionChange(!autoLikeOnCompletion) }
+                ))
+                if (autoLikeOnCompletion) {
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.history),
+                        title = { Text(stringResource(R.string.auto_like_completion_threshold)) },
+                        description = {
+                            Column {
+                                Text(pluralStringResource(R.plurals.completions, autoLikeCompletionThreshold, autoLikeCompletionThreshold))
+                                Slider(
+                                    value = autoLikeCompletionThreshold.toFloat(),
+                                    onValueChange = { onAutoLikeCompletionThresholdChange(it.roundToInt()) },
+                                    valueRange = 1f..10f,
+                                    steps = 8
+                                )
+                            }
+                        }
+                    ))
+                }
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.delete),
+                    title = { Text(stringResource(R.string.auto_blacklist_on_skip)) },
+                    description = { Text(stringResource(R.string.auto_blacklist_on_skip_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = autoBlacklistOnSkip,
+                            onCheckedChange = onAutoBlacklistOnSkipChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (autoBlacklistOnSkip) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onAutoBlacklistOnSkipChange(!autoBlacklistOnSkip) }
+                ))
+                if (autoBlacklistOnSkip) {
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.skip_next),
+                        title = { Text(stringResource(R.string.auto_blacklist_skip_threshold)) },
+                        description = {
+                            Column {
+                                Text(pluralStringResource(R.plurals.skips, autoBlacklistSkipThreshold, autoBlacklistSkipThreshold))
+                                Slider(
+                                    value = autoBlacklistSkipThreshold.toFloat(),
+                                    onValueChange = { onAutoBlacklistSkipThresholdChange(it.roundToInt()) },
+                                    valueRange = 1f..10f,
+                                    steps = 8
+                                )
+                            }
+                        }
+                    ))
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.fast_forward),
+                        title = { Text(stringResource(R.string.fast_skip_threshold)) },
+                        description = {
+                            Column {
+                                Text(pluralStringResource(R.plurals.seconds, fastSkipThresholdSeconds, fastSkipThresholdSeconds))
+                                Slider(
+                                    value = fastSkipThresholdSeconds.toFloat(),
+                                    onValueChange = { onFastSkipThresholdSecondsChange(it.roundToInt()) },
+                                    valueRange = 3f..30f,
+                                    steps = 26
+                                )
+                            }
+                        }
+                    ))
+                }
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.list),
+                    title = { Text(stringResource(R.string.blacklisted_songs)) },
+                    description = { Text(stringResource(R.string.blacklisted_songs_desc)) },
+                    onClick = { navController.navigate("auto_playlist/blacklisted") }
                 ))
             }
         )

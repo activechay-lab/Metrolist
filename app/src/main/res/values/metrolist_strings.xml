@@ -282,6 +282,29 @@
         <item quantity="one">1 second</item>
         <item quantity="other">%d seconds</item>
     </plurals>
+    <plurals name="completions">
+        <item quantity="one">1 completion</item>
+        <item quantity="other">%d completions</item>
+    </plurals>
+    <plurals name="skips">
+        <item quantity="one">1 skip</item>
+        <item quantity="other">%d skips</item>
+    </plurals>
+
+    <!-- Smart automation (auto-like / auto-blacklist) -->
+    <string name="smart_automation">Smart automation</string>
+    <string name="auto_like_on_completion">Auto-like on repeat listens</string>
+    <string name="auto_like_on_completion_desc">Automatically like a song once you\'ve listened to it to completion this many times</string>
+    <string name="auto_like_completion_threshold">Completions before auto-like</string>
+    <string name="auto_blacklist_on_skip">Auto-blacklist on fast skips</string>
+    <string name="auto_blacklist_on_skip_desc">Automatically blacklist a song once you\'ve skipped it early this many times. Blacklisted songs are silently skipped everywhere — radio, playlists, shuffle</string>
+    <string name="auto_blacklist_skip_threshold">Fast skips before auto-blacklist</string>
+    <string name="fast_skip_threshold">Counts as a fast skip if abandoned within</string>
+    <string name="blacklisted_songs">Blacklisted songs</string>
+    <string name="blacklisted_songs_desc">Review and un-blacklist songs</string>
+    <string name="add_to_blacklist">Add to blacklist</string>
+    <string name="remove_from_blacklist">Remove from blacklist</string>
+    <string name="blacklist_desc">Blacklisted songs are silently skipped wherever they appear</string>
 
     <!-- Sleep timer -->
     <string name="set_as_default">Set as default</string>

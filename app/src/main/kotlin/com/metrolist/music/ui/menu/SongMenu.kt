@@ -799,6 +799,41 @@ fun SongMenu(
                                 ),
                             )
                         }
+                        add(
+                            Material3MenuItemData(
+                                title = {
+                                    Text(
+                                        text =
+                                            stringResource(
+                                                if (song.song.blacklisted) {
+                                                    R.string.remove_from_blacklist
+                                                } else {
+                                                    R.string.add_to_blacklist
+                                                },
+                                            ),
+                                    )
+                                },
+                                description = { Text(text = stringResource(R.string.blacklist_desc)) },
+                                icon = {
+                                    Icon(
+                                        painter =
+                                            painterResource(
+                                                if (song.song.blacklisted) R.drawable.remove else R.drawable.delete,
+                                            ),
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    database.query {
+                                        if (song.song.blacklisted) {
+                                            unblacklistSong(song.id)
+                                        } else {
+                                            blacklistSong(song.id)
+                                        }
+                                    }
+                                },
+                            ),
+                        )
                         if (event != null) {
                             add(
                                 Material3MenuItemData(

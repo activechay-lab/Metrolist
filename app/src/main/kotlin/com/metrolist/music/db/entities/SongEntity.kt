@@ -39,6 +39,10 @@ data class SongEntity(
     val dateModified: LocalDateTime? = null, // file property
     val liked: Boolean = false,
     val likedDate: LocalDateTime? = null,
+    @ColumnInfo(defaultValue = "0")
+    val blacklisted: Boolean = false,
+    @ColumnInfo(name = "blacklistedDate", defaultValue = "NULL")
+    val blacklistedDate: LocalDateTime? = null,
     val totalPlayTime: Long = 0, // in milliseconds
     val inLibrary: LocalDateTime? = null,
     val dateDownload: LocalDateTime? = null,
@@ -69,6 +73,10 @@ data class SongEntity(
         copy(
             liked = !liked,
             likedDate = if (!liked) LocalDateTime.now() else null,
+            // Liking a song is a stronger, more deliberate signal than a
+            // blacklist — it always wins and clears any prior blacklist.
+            blacklisted = if (!liked) false else blacklisted,
+            blacklistedDate = if (!liked) null else blacklistedDate,
         )
 
     fun withLibraryMembership(
@@ -81,6 +89,8 @@ data class SongEntity(
             liked = !liked,
             likedDate = if (!liked) LocalDateTime.now() else null,
             inLibrary = if (!liked) inLibrary ?: LocalDateTime.now() else inLibrary,
+            blacklisted = if (!liked) false else blacklisted,
+            blacklistedDate = if (!liked) null else blacklistedDate,
         ).also {
             if (syncToYouTube) {
                 CoroutineScope(Dispatchers.IO).launch {
