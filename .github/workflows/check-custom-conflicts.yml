@@ -1,0 +1,42 @@
+name: Check custom for upstream conflicts
+
+# Dry-run only: attempts merging upstream/main into custom in a scratch
+# checkout and never pushes or commits anything back. If the merge would
+# conflict, this job fails on purpose — GitHub emails the repo owner on a
+# failed scheduled workflow run by default, which is the signal to go
+# resolve it locally:
+#   git fetch upstream && git checkout custom && git merge upstream/main
+on:
+  schedule:
+    - cron: '15 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: custom
+          fetch-depth: 0
+
+      - name: Configure scratch git identity
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Attempt merge (never pushed)
+        run: |
+          git remote add upstream https://github.com/metrolistgroup/metrolist.git
+          git fetch upstream main
+          if git merge --no-commit --no-ff upstream/main; then
+            git merge --abort || true
+            echo "Clean merge — no conflicts with upstream/main."
+          else
+            git merge --abort || true
+            echo "::error::custom has merge conflicts with upstream/main. Resolve locally: git fetch upstream && git checkout custom && git merge upstream/main"
+            exit 1
+          fi
