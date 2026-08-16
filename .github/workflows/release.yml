@@ -1,10 +1,11 @@
 name: Bump to new version
+
+# Builds and releases from `custom` on every push — main is upstream-tracking
+# only and never builds its own release.
 on:
   push:
     branches:
-      - "main"
-    paths:
-      - "app/build.gradle.kts"
+      - "custom"
   workflow_dispatch:
 
 concurrency:
@@ -47,33 +48,11 @@ jobs:
 
           echo "Current version: $NEW_VERSION (code: $VERSION_CODE)"
 
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
-            echo "Manual release requested for version $NEW_VERSION"
-            echo "version_changed=true" >> $GITHUB_OUTPUT
-            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          if git show HEAD^:app/build.gradle.kts > /dev/null 2>&1; then
-            OLD_VERSION=$(git show HEAD^:app/build.gradle.kts | grep -m1 -oP '^\s*versionName\s*=\s*"\K[^"]+' || echo "")
-            echo "Previous version: $OLD_VERSION"
-            
-            if [ "$OLD_VERSION" != "$NEW_VERSION" ]; then
-              echo "Version changed from $OLD_VERSION to $NEW_VERSION"
-              echo "version_changed=true" >> $GITHUB_OUTPUT
-              echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-              echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
-            else
-              echo "Version unchanged: $NEW_VERSION"
-              echo "version_changed=false" >> $GITHUB_OUTPUT
-            fi
-          else
-            echo "First version detected: $NEW_VERSION"
-            echo "version_changed=true" >> $GITHUB_OUTPUT
-            echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
-            echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
-          fi
+          # Every push to custom is a deliberate change worth a fresh build —
+          # unlike the old main-only trigger, there's no version-bump gate.
+          echo "version_changed=true" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "version_code=$VERSION_CODE" >> $GITHUB_OUTPUT
 
       - name: Debug output
         run: |
@@ -232,8 +211,8 @@ jobs:
             cat release_notes.md
           } > attributed_release_notes.md
 
-          gh release create "v${{ needs.check-version.outputs.new_version }}" \
-            --title "${{ needs.check-version.outputs.new_version }}" \
+          gh release create "custom-v${{ needs.check-version.outputs.new_version }}-${{ github.run_number }}" \
+            --title "Custom build ${{ needs.check-version.outputs.new_version }} (#${{ github.run_number }})" \
             --notes-file attributed_release_notes.md \
             --latest \
             release_files/*.apk
@@ -247,4 +226,4 @@ jobs:
           echo "- **Version Code**: ${{ needs.check-version.outputs.version_code }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Released by**: @${{ github.triggering_actor }}" >> $GITHUB_STEP_SUMMARY
           echo "- **APKs Built**: $(ls release_files/*.apk | wc -l)" >> $GITHUB_STEP_SUMMARY
-          echo "- **Release URL**: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.check-version.outputs.new_version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release URL**: https://github.com/${{ github.repository }}/releases/tag/custom-v${{ needs.check-version.outputs.new_version }}-${{ github.run_number }}" >> $GITHUB_STEP_SUMMARY
