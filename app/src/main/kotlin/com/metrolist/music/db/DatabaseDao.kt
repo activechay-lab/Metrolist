@@ -1608,6 +1608,14 @@ interface DatabaseDao {
     @Query("UPDATE song SET blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL WHERE blacklisted = 1 AND blacklistedDate < :cutoff")
     fun unblacklistExpired(cutoff: LocalDateTime)
 
+    // NULL blacklistReason predates the reason column and is always from the
+    // auto-skip path, so it counts as "auto" here.
+    @Query("UPDATE song SET blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL WHERE blacklisted = 1 AND (blacklistReason IS NULL OR blacklistReason = 'auto')")
+    fun unblacklistAllAuto()
+
+    @Query("UPDATE song SET blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL WHERE blacklisted = 1 AND blacklistReason = 'manual'")
+    fun unblacklistAllManual()
+
     @Transaction
     @Query("SELECT * FROM song WHERE blacklisted ORDER BY blacklistedDate DESC")
     fun blacklistedSongs(): Flow<List<Song>>

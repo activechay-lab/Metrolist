@@ -1804,7 +1804,7 @@ class MusicService :
 
             if (!autoLikeEnabled || completions != likeThreshold || songEntity.liked) return@query
 
-            val liked = songEntity.toggleLike()
+            val liked = songEntity.toggleLike(reason = "auto")
             update(liked)
 
             Handler(Looper.getMainLooper()).post {
@@ -1852,8 +1852,14 @@ class MusicService :
      * liked/blacklisted being kept mutually exclusive at write time) — this
      * applies only to the song's own flag, not artist/album blacklist, since
      * liking a song doesn't un-blacklist its artist or album.
+     *
+     * [allowBlacklistedPlayback] comes from the current MediaItem's extras
+     * (see `Song.toMediaItem`) — set when the queue was built from the
+     * blacklist management screen itself, so deliberately choosing to play a
+     * blacklisted song there actually plays it instead of being skipped.
      */
-    private fun skipIfBlacklisted(songId: String) {
+    private fun skipIfBlacklisted(songId: String, allowBlacklistedPlayback: Boolean) {
+        if (allowBlacklistedPlayback) return
         scope.launch(Dispatchers.IO) {
             val song = database.songEntityOrNull(songId) ?: return@launch
             if (song.liked || !database.isEffectivelyBlacklisted(songId)) return@launch
@@ -2624,7 +2630,11 @@ class MusicService :
             }
         }
         lastTransitionedMediaId = mediaItem?.mediaId
-        mediaItem?.mediaId?.let(::skipIfBlacklisted)
+        mediaItem?.mediaId?.let { mediaId ->
+            val allowBlacklistedPlayback =
+                mediaItem.mediaMetadata.extras?.getBoolean("allow_blacklisted_playback") == true
+            skipIfBlacklisted(mediaId, allowBlacklistedPlayback)
+        }
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
         initialBufferRecoveryAttemptedMediaId = null

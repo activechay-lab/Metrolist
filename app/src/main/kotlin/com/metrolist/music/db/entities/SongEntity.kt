@@ -39,6 +39,11 @@ data class SongEntity(
     val dateModified: LocalDateTime? = null, // file property
     val liked: Boolean = false,
     val likedDate: LocalDateTime? = null,
+    // "auto" (repeat listens) or "manual" (song menu heart). NULL on rows liked
+    // before this column existed — since liking predates auto-like, NULL means
+    // "manual", the opposite convention from blacklistReason below.
+    @ColumnInfo(name = "likedReason", defaultValue = "NULL")
+    val likedReason: String? = null,
     @ColumnInfo(defaultValue = "0")
     val blacklisted: Boolean = false,
     @ColumnInfo(name = "blacklistedDate", defaultValue = "NULL")
@@ -72,10 +77,11 @@ data class SongEntity(
     @ColumnInfo(name = "isCached", defaultValue = "0")
     val isCached: Boolean = false,
 ) {
-    fun localToggleLike() =
+    fun localToggleLike(reason: String = "manual") =
         copy(
             liked = !liked,
             likedDate = if (!liked) LocalDateTime.now() else null,
+            likedReason = if (!liked) reason else null,
             // Liking a song is a stronger, more deliberate signal than a
             // blacklist — it always wins and clears any prior blacklist.
             blacklisted = if (!liked) false else blacklisted,
@@ -88,10 +94,11 @@ data class SongEntity(
         addedAt: LocalDateTime = LocalDateTime.now(),
     ) = copy(inLibrary = if (isInLibrary) inLibrary ?: addedAt else null)
 
-    fun toggleLike(syncToYouTube: Boolean = true) =
+    fun toggleLike(syncToYouTube: Boolean = true, reason: String = "manual") =
         copy(
             liked = !liked,
             likedDate = if (!liked) LocalDateTime.now() else null,
+            likedReason = if (!liked) reason else null,
             inLibrary = if (!liked) inLibrary ?: LocalDateTime.now() else inLibrary,
             blacklisted = if (!liked) false else blacklisted,
             blacklistedDate = if (!liked) null else blacklistedDate,

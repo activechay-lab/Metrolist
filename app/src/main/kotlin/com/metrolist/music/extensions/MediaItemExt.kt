@@ -18,7 +18,14 @@ import com.metrolist.music.utils.ArtistNameAliases
 val MediaItem.metadata: MediaMetadata?
     get() = localConfiguration?.tag as? MediaMetadata
 
-fun Song.toMediaItem() = toMediaMetadata().toMediaItem()
+fun Song.toMediaItem(allowBlacklistedPlayback: Boolean = false): MediaItem {
+    val item = toMediaMetadata().toMediaItem()
+    if (!allowBlacklistedPlayback) return item
+    val extras = Bundle(item.mediaMetadata.extras).apply {
+        putBoolean("allow_blacklisted_playback", true)
+    }
+    return item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setExtras(extras).build()).build()
+}
 
 fun SongItem.toMediaItem() = toMediaMetadata().toMediaItem()
 
