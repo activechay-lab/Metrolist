@@ -792,7 +792,7 @@ fun PlayerSettings(
                     icon = painterResource(R.drawable.list),
                     title = { Text(stringResource(R.string.blacklisted_songs)) },
                     description = { Text(stringResource(R.string.blacklisted_songs_desc)) },
-                    onClick = { navController.navigate("auto_playlist/blacklisted") }
+                    onClick = { navController.navigate("blacklist") }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.history),

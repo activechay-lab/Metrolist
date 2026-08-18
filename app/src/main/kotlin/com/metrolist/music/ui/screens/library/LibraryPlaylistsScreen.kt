@@ -66,6 +66,8 @@ import com.metrolist.music.constants.LibraryViewType
 import com.metrolist.music.constants.PlaylistSortDescendingKey
 import com.metrolist.music.constants.PlaylistSortType
 import com.metrolist.music.constants.PlaylistSortTypeKey
+import com.metrolist.music.constants.PlaylistViewTypeKey
+import com.metrolist.music.constants.ShowBlacklistedPlaylistKey
 import com.metrolist.music.constants.ShowCachedPlaylistKey
 import com.metrolist.music.constants.ShowDownloadedPlaylistKey
 import com.metrolist.music.constants.ShowLikedPlaylistKey
@@ -194,11 +196,22 @@ fun LibraryPlaylistsScreen(
             songThumbnails = emptyList(),
         )
 
+    val blacklistedPlaylist =
+        Playlist(
+            playlist = PlaylistEntity(
+                id = UUID.randomUUID().toString(),
+                name = stringResource(R.string.blacklist)
+            ),
+            songCount = 0,
+            songThumbnails = emptyList(),
+        )
+
     val (showLiked) = rememberPreference(ShowLikedPlaylistKey, true)
     val (showDownloaded) = rememberPreference(ShowDownloadedPlaylistKey, true)
     val (showTop) = rememberPreference(ShowTopPlaylistKey, true)
     val (showUploaded) = rememberPreference(ShowUploadedPlaylistKey, true)
     val (showCached) = rememberPreference(ShowCachedPlaylistKey, true)
+    val (showBlacklisted) = rememberPreference(ShowBlacklistedPlaylistKey, true)
     val showLikedPlaylist = showLiked && matchesNormalizedQuery(normalizedQuery, likedPlaylist.playlist.name)
     val showDownloadedPlaylist =
         showDownloaded && matchesNormalizedQuery(normalizedQuery, downloadPlaylist.playlist.name)
@@ -206,6 +219,8 @@ fun LibraryPlaylistsScreen(
     val showTopPlaylists = showTop && matchesNormalizedQuery(normalizedQuery, topPlaylist.playlist.name)
     val showUploadedPlaylists =
         showUploaded && matchesNormalizedQuery(normalizedQuery, uploadedPlaylist.playlist.name)
+    val showBlacklistedPlaylist =
+        showBlacklisted && matchesNormalizedQuery(normalizedQuery, blacklistedPlaylist.playlist.name)
 
     val visibleResults = remember(
         filteredPlaylists,
@@ -214,6 +229,7 @@ fun LibraryPlaylistsScreen(
         showCachedPlaylists,
         showTopPlaylists,
         showUploadedPlaylists,
+        showBlacklistedPlaylist,
         topSize,
     ) {
         buildList {
@@ -224,6 +240,16 @@ fun LibraryPlaylistsScreen(
                         playlist = likedPlaylist,
                         autoPlaylist = true,
                         route = "auto_playlist/liked",
+                    ),
+                )
+            }
+            if (showBlacklistedPlaylist) {
+                add(
+                    VisiblePlaylistItem(
+                        key = "blacklistedPlaylist",
+                        playlist = blacklistedPlaylist,
+                        autoPlaylist = true,
+                        route = "blacklist",
                     ),
                 )
             }

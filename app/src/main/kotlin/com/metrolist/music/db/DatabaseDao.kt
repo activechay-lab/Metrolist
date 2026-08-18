@@ -1620,6 +1620,15 @@ interface DatabaseDao {
     @Query("SELECT * FROM song WHERE blacklisted ORDER BY blacklistedDate DESC")
     fun blacklistedSongs(): Flow<List<Song>>
 
+    @Transaction
+    @SuppressWarnings(RoomWarnings.QUERY_MISMATCH)
+    @Query("SELECT *, (SELECT COUNT(1) FROM song_artist_map JOIN song ON song_artist_map.songId = song.id WHERE artistId = artist.id AND song.inLibrary IS NOT NULL) AS songCount FROM artist WHERE blacklisted ORDER BY blacklistedDate DESC")
+    fun blacklistedArtists(): Flow<List<Artist>>
+
+    @Transaction
+    @Query("SELECT * FROM album WHERE blacklisted ORDER BY blacklistedDate DESC")
+    fun blacklistedAlbums(): Flow<List<Album>>
+
     @Query("UPDATE artist SET blacklisted = 1, blacklistedDate = :blacklistedDate, blacklistReason = :reason WHERE id = :artistId")
     fun blacklistArtist(artistId: String, blacklistedDate: LocalDateTime = LocalDateTime.now(), reason: String = "manual")
 
