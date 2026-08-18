@@ -30,7 +30,14 @@ data class ArtistEntity(
     @ColumnInfo(name = "isPodcastChannel", defaultValue = false.toString())
     val isPodcastChannel: Boolean = false,
     @ColumnInfo(name = "cachedPageJson")
-    val cachedPageJson: String? = null
+    val cachedPageJson: String? = null,
+    @ColumnInfo(name = "blacklisted", defaultValue = "0")
+    val blacklisted: Boolean = false,
+    @ColumnInfo(name = "blacklistedDate", defaultValue = "NULL")
+    val blacklistedDate: LocalDateTime? = null,
+    // Always "manual" today — artists have no fast-skip auto-blacklist signal like songs do.
+    @ColumnInfo(name = "blacklistReason", defaultValue = "NULL")
+    val blacklistReason: String? = null,
 ) {
     val isYouTubeArtist: Boolean
         get() = id.startsWith("UC") || id.startsWith("FEmusic_library_privately_owned_artist")

@@ -863,6 +863,7 @@ fun AutoPlaylistScreen(
                                     onDismiss = menuState::dismiss,
                                     clearAction = onExitSelectionMode,
                                     isUploadedPlaylist = playlistType == PlaylistType.UPLOADED,
+                                    isBlacklistedPlaylist = viewModel.playlist == "blacklisted",
                                 )
                             }
                         },

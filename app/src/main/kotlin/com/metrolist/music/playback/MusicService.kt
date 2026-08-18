@@ -1852,18 +1852,20 @@ class MusicService :
     }
 
     /**
-     * If [songId] is blacklisted, skips past it as soon as it becomes the
-     * current item — regardless of how it entered the queue (radio, an
-     * existing playlist, shuffle, or a manual add). The blacklist check is
-     * async, so a blacklisted song may play for a brief moment before this
-     * skips it. A liked song is never skipped here even if its blacklisted
-     * flag is somehow still set (belt-and-suspenders on top of liked/
-     * blacklisted being kept mutually exclusive at write time).
+     * If [songId] — or its artist or album — is blacklisted, skips past it as
+     * soon as it becomes the current item — regardless of how it entered the
+     * queue (radio, an existing playlist, shuffle, or a manual add). The
+     * blacklist check is async, so a blacklisted song may play for a brief
+     * moment before this skips it. A liked song is never skipped here even if
+     * its blacklisted flag is somehow still set (belt-and-suspenders on top of
+     * liked/blacklisted being kept mutually exclusive at write time) — this
+     * applies only to the song's own flag, not artist/album blacklist, since
+     * liking a song doesn't un-blacklist its artist or album.
      */
     private fun skipIfBlacklisted(songId: String) {
         scope.launch(Dispatchers.IO) {
-            val song = database.songEntityOrNull(songId)
-            if (song == null || !song.blacklisted || song.liked) return@launch
+            val song = database.songEntityOrNull(songId) ?: return@launch
+            if (song.liked || !database.isEffectivelyBlacklisted(songId)) return@launch
             withContext(Dispatchers.Main) {
                 if (player.currentMediaItem?.mediaId != songId) return@withContext
                 if (player.hasNextMediaItem()) {

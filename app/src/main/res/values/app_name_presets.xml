@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Preset home-screen name options shown in Settings > Appearance > App name. -->
+    <string name="app_name_option_1" translatable="false">Tune Tube</string>
+    <string name="app_name_option_2" translatable="false">Musicly</string>
+    <string name="app_name_option_3" translatable="false">Soundly</string>
+    <string name="app_name_option_4" translatable="false">VibeMusic</string>
+    <string name="app_name_option_5" translatable="false">TuneFlow</string>
+    <string name="app_name_option_6" translatable="false">SoundFlow</string>
+    <string name="app_name_option_7" translatable="false">PlayWave</string>
+    <string name="app_name_option_8" translatable="false">MusicWave</string>
+</resources>

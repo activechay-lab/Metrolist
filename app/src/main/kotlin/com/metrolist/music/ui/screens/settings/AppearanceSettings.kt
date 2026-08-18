@@ -63,6 +63,7 @@ import com.metrolist.music.constants.DensityScale
 import com.metrolist.music.constants.DensityScaleKey
 import com.metrolist.music.constants.DynamicThemeKey
 import com.metrolist.music.constants.EnableDynamicIconKey
+import com.metrolist.music.constants.SelectedAppNameIndexKey
 import com.metrolist.music.constants.EnableHighRefreshRateKey
 import com.metrolist.music.constants.EnableLandscapeScalingKey
 import com.metrolist.music.constants.ExperimentalLyricsKey
@@ -139,10 +140,24 @@ fun AppearanceSettings(
             EnableDynamicIconKey,
             defaultValue = true,
         )
+    val (selectedAppNameIndex, onSelectedAppNameIndexPrefChange) =
+        rememberPreference(
+            SelectedAppNameIndexKey,
+            defaultValue = 0,
+        )
     val iconContext = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val appNameChangeToast = stringResource(R.string.app_name_change_toast)
     val onEnableDynamicIconChange: (Boolean) -> Unit = { newValue ->
         onEnableDynamicIconPrefChange(newValue)
-        IconUtils.setIcon(iconContext, newValue)
+        IconUtils.applyLauncherAlias(iconContext, dynamicIconEnabled = newValue, appNameIndex = selectedAppNameIndex)
+    }
+    val onSelectedAppNameIndexChange: (Int) -> Unit = { newValue ->
+        onSelectedAppNameIndexPrefChange(newValue)
+        IconUtils.applyLauncherAlias(iconContext, dynamicIconEnabled = enableDynamicIcon, appNameIndex = newValue)
+        coroutineScope.launch {
+            snackbarHostState.showSnackbar(appNameChangeToast)
+        }
     }
     val (enableHighRefreshRate, onEnableHighRefreshRateChange) =
         rememberPreference(
@@ -179,6 +194,7 @@ fun AppearanceSettings(
         }
 
     var showMiniPlayerBackgroundDialog by rememberSaveable { mutableStateOf(false) }
+    var showAppNameDialog by rememberSaveable { mutableStateOf(false) }
 
     val (useNewMiniPlayerDesign, onUseNewMiniPlayerDesignChange) =
         rememberPreference(
@@ -593,6 +609,37 @@ fun AppearanceSettings(
                     MiniPlayerBackgroundStyle.BLUR -> stringResource(R.string.player_background_blur)
                     MiniPlayerBackgroundStyle.GRADIENT -> stringResource(R.string.gradient)
                     MiniPlayerBackgroundStyle.PURE_BLACK -> stringResource(R.string.pure_black)
+                }
+            },
+        )
+    }
+
+    if (showAppNameDialog) {
+        EnumDialog(
+            onDismiss = { showAppNameDialog = false },
+            onSelect = {
+                onSelectedAppNameIndexChange(it)
+                showAppNameDialog = false
+            },
+            title = stringResource(R.string.app_name_setting),
+            current = selectedAppNameIndex,
+            values = (0..IconUtils.NAME_PRESET_COUNT).toList(),
+            valueText = {
+                if (it == 0) {
+                    stringResource(R.string.app_name_default)
+                } else {
+                    stringResource(
+                        when (it) {
+                            1 -> R.string.app_name_option_1
+                            2 -> R.string.app_name_option_2
+                            3 -> R.string.app_name_option_3
+                            4 -> R.string.app_name_option_4
+                            5 -> R.string.app_name_option_5
+                            6 -> R.string.app_name_option_6
+                            7 -> R.string.app_name_option_7
+                            else -> R.string.app_name_option_8
+                        },
+                    )
                 }
             },
         )
@@ -1070,6 +1117,33 @@ fun AppearanceSettings(
                             title = { Text(stringResource(R.string.theme)) },
                             description = { Text(stringResource(R.string.theme_desc)) },
                             onClick = { navController.navigate("settings/appearance/theme") },
+                        ),
+                    )
+                    add(
+                        Material3SettingsItem(
+                            icon = painterResource(R.drawable.edit),
+                            title = { Text(stringResource(R.string.app_name_setting)) },
+                            description = {
+                                Text(
+                                    if (selectedAppNameIndex == 0) {
+                                        stringResource(R.string.app_name_default)
+                                    } else {
+                                        stringResource(
+                                            when (selectedAppNameIndex) {
+                                                1 -> R.string.app_name_option_1
+                                                2 -> R.string.app_name_option_2
+                                                3 -> R.string.app_name_option_3
+                                                4 -> R.string.app_name_option_4
+                                                5 -> R.string.app_name_option_5
+                                                6 -> R.string.app_name_option_6
+                                                7 -> R.string.app_name_option_7
+                                                else -> R.string.app_name_option_8
+                                            },
+                                        )
+                                    },
+                                )
+                            },
+                            onClick = { showAppNameDialog = true },
                         ),
                     )
                 },

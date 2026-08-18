@@ -43,6 +43,8 @@ import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
 import com.metrolist.music.constants.AutoBlacklistOnSkipKey
 import com.metrolist.music.constants.AutoBlacklistSkipThresholdKey
+import com.metrolist.music.constants.AutoUnblacklistDaysKey
+import com.metrolist.music.constants.AutoUnblacklistEnabledKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.AutoLikeCompletionThresholdKey
 import com.metrolist.music.constants.PlayedPercentThresholdKey
@@ -266,6 +268,14 @@ fun PlayerSettings(
     val (autoDeleteEpisodePlaysThreshold, onAutoDeleteEpisodePlaysThresholdChange) = rememberPreference(
         AutoDeleteEpisodePlaysThresholdKey,
         defaultValue = 1
+    )
+    val (autoUnblacklistEnabled, onAutoUnblacklistEnabledChange) = rememberPreference(
+        AutoUnblacklistEnabledKey,
+        defaultValue = false
+    )
+    val (autoUnblacklistDays, onAutoUnblacklistDaysChange) = rememberPreference(
+        AutoUnblacklistDaysKey,
+        defaultValue = 30
     )
 
     var showAudioQualityDialog by remember {
@@ -784,6 +794,44 @@ fun PlayerSettings(
                     description = { Text(stringResource(R.string.blacklisted_songs_desc)) },
                     onClick = { navController.navigate("auto_playlist/blacklisted") }
                 ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.history),
+                    title = { Text(stringResource(R.string.auto_unblacklist)) },
+                    description = { Text(stringResource(R.string.auto_unblacklist_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = autoUnblacklistEnabled,
+                            onCheckedChange = onAutoUnblacklistEnabledChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (autoUnblacklistEnabled) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onAutoUnblacklistEnabledChange(!autoUnblacklistEnabled) }
+                ))
+                if (autoUnblacklistEnabled) {
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.history),
+                        title = { Text(stringResource(R.string.auto_unblacklist_days)) },
+                        description = {
+                            Column {
+                                Text(pluralStringResource(R.plurals.days, autoUnblacklistDays, autoUnblacklistDays))
+                                Slider(
+                                    value = autoUnblacklistDays.toFloat(),
+                                    onValueChange = { onAutoUnblacklistDaysChange(it.roundToInt()) },
+                                    valueRange = 1f..90f,
+                                    steps = 88
+                                )
+                            }
+                        }
+                    ))
+                }
             }
         )
 

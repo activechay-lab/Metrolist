@@ -707,6 +707,36 @@ fun AlbumMenu(
                                 }
                             },
                         ),
+                        Material3MenuItemData(
+                            title = {
+                                Text(
+                                    text = stringResource(
+                                        if (album.album.blacklisted) {
+                                            R.string.remove_album_from_blacklist
+                                        } else {
+                                            R.string.add_album_to_blacklist
+                                        },
+                                    ),
+                                )
+                            },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(
+                                        if (album.album.blacklisted) R.drawable.remove else R.drawable.delete,
+                                    ),
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                database.query {
+                                    if (album.album.blacklisted) {
+                                        unblacklistAlbum(album.id)
+                                    } else {
+                                        blacklistAlbum(album.id)
+                                    }
+                                }
+                            },
+                        ),
                     ),
             )
         }
