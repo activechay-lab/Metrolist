@@ -111,6 +111,10 @@ import com.metrolist.music.constants.AutoLikeCompletionThresholdKey
 import com.metrolist.music.constants.AutoLikeOnCompletionKey
 import com.metrolist.music.constants.AutoLoadMoreKey
 import com.metrolist.music.constants.FastSkipThresholdSecondsKey
+import com.metrolist.music.constants.PlayedPercentThresholdKey
+import com.metrolist.music.constants.AutoDeleteEpisodeAfterPlaysKey
+import com.metrolist.music.constants.AutoDeleteEpisodePlaysThresholdKey
+import com.metrolist.music.constants.SkipPositionExemptPercentKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
 import com.metrolist.music.constants.StreamSourceAndroidVRKey
 import com.metrolist.music.constants.StreamSourceTVHTML5Key
@@ -1762,17 +1766,25 @@ class MusicService :
     }
 
     /**
-     * Records a natural playback completion for [songId] and auto-likes it
-     * the moment it FIRST reaches [AUTO_LIKE_COMPLETION_THRESHOLD] completions,
-     * if it isn't already liked. Fires exactly once per song (exact-count
-     * match, not a floor) so that manually unliking it afterwards sticks
-     * instead of being overwritten on the next completion. Runs on the
-     * database's query executor, so it's safe to call from playback-analytics
-     * callbacks.
+     * Records a natural playback completion for [songId] (one shared counter
+     * for both outcomes below, so a song is never double-counted). Songs get
+     * auto-liked the moment they FIRST reach [AUTO_LIKE_COMPLETION_THRESHOLD]
+     * completions, if not already liked. Podcast episodes are never liked
+     * this way — instead, once played [AUTO_DELETE_EPISODE_PLAYS_THRESHOLD]
+     * times they get their download removed and are dropped from "Episodes
+     * for later", if that automation is enabled. Both fire exactly once
+     * (exact-count match, not a floor) so a manual undo afterwards sticks.
+     * Runs on the database's query executor, so it's safe to call from
+     * playback-analytics callbacks.
      */
-    private fun autoLikeOnCompletion(songId: String) {
-        if (!dataStore.get(AutoLikeOnCompletionKey, true)) return
-        val threshold = dataStore.get(AutoLikeCompletionThresholdKey, AUTO_LIKE_COMPLETION_THRESHOLD)
+    private fun handleSongPlayed(songId: String) {
+        val autoLikeEnabled = dataStore.get(AutoLikeOnCompletionKey, true)
+        val autoDeleteEpisodeEnabled = dataStore.get(AutoDeleteEpisodeAfterPlaysKey, false)
+        if (!autoLikeEnabled && !autoDeleteEpisodeEnabled) return
+
+        val likeThreshold = dataStore.get(AutoLikeCompletionThresholdKey, AUTO_LIKE_COMPLETION_THRESHOLD)
+        val deleteThreshold = dataStore.get(AutoDeleteEpisodePlaysThresholdKey, AUTO_DELETE_EPISODE_PLAYS_THRESHOLD)
+
         database.query {
             val completions =
                 try {
@@ -1780,9 +1792,26 @@ class MusicService :
                 } catch (_: SQLException) {
                     return@query
                 }
-            if (completions != threshold) return@query
             val songEntity = songEntityOrNull(songId) ?: return@query
-            if (songEntity.liked || songEntity.isEpisode) return@query
+
+            if (songEntity.isEpisode) {
+                if (!autoDeleteEpisodeEnabled || completions != deleteThreshold) return@query
+
+                androidx.media3.exoplayer.offline.DownloadService.sendRemoveDownload(
+                    this@MusicService,
+                    ExoDownloadService::class.java,
+                    songId,
+                    false,
+                )
+                if (songEntity.inLibrary != null) {
+                    update(songEntity.copy(inLibrary = null))
+                    val setVideoId = runBlocking { getSetVideoId(songId) }?.setVideoId
+                    syncUtils.saveEpisode(songId, false, setVideoId)
+                }
+                return@query
+            }
+
+            if (!autoLikeEnabled || completions != likeThreshold || songEntity.liked) return@query
 
             val liked = songEntity.toggleLike()
             update(liked)
@@ -1818,7 +1847,7 @@ class MusicService :
             val songEntity = songEntityOrNull(songId) ?: return@query
             if (songEntity.liked || songEntity.blacklisted || songEntity.isEpisode) return@query
 
-            blacklistSong(songId)
+            blacklistSong(songId, reason = "auto")
         }
     }
 
@@ -4077,16 +4106,45 @@ class MusicService :
             }
         }
 
-        if (playbackStats.endedCount > 0) {
-            autoLikeOnCompletion(mediaItem.mediaId)
+        // A song counts as "played" once endedCount confirms it reached the
+        // real end, OR the listened fraction hits the configurable percent
+        // threshold (lets a song count even if the app advanced a hair before
+        // the literal end, e.g. crossfade/gapless timing).
+        val windowDurationUs = eventTime.timeline.getWindow(eventTime.windowIndex, Timeline.Window()).durationUs
+        val playedPercent =
+            if (windowDurationUs != C.TIME_UNSET && windowDurationUs > 0) {
+                ((playbackStats.totalPlayTimeMs * 100) / (windowDurationUs / 1000)).toInt().coerceAtMost(100)
+            } else {
+                null
+            }
+        val playedPercentThreshold = dataStore.get(PlayedPercentThresholdKey, PLAYED_PERCENT_THRESHOLD)
+        val wasPlayed = playbackStats.endedCount > 0 || (playedPercent != null && playedPercent >= playedPercentThreshold)
+
+        if (wasPlayed) {
+            handleSongPlayed(mediaItem.mediaId)
         } else {
             // Moving to an earlier position in the queue (pressing "previous",
             // jumping back to something already played) is navigation, not a
             // rejection of the song being left — never count it as a fast skip.
             val wentBackward = eventTime.windowIndex > player.currentMediaItemIndex
+
+            // eventPlaybackPositionMs is where playback actually was the moment
+            // this window was left — unlike totalPlayTimeMs it also reflects
+            // fast-forwarding/scrubbing, not just real-time elapsed listening.
+            // Reaching deep into the track before skipping is real engagement,
+            // not an abandoned/rejected song, even if it happened quickly.
+            val reachedPercent =
+                if (windowDurationUs != C.TIME_UNSET && windowDurationUs > 0) {
+                    ((eventTime.eventPlaybackPositionMs * 100) / (windowDurationUs / 1000)).toInt().coerceAtMost(100)
+                } else {
+                    null
+                }
+            val skipExemptPercent = dataStore.get(SkipPositionExemptPercentKey, SKIP_POSITION_EXEMPT_PERCENT)
+            val reachedFar = reachedPercent != null && reachedPercent >= skipExemptPercent
+
             val fastSkipThresholdMs =
                 dataStore.get(FastSkipThresholdSecondsKey, (FAST_SKIP_THRESHOLD_MS / 1000L).toInt()) * 1000L
-            if (!wentBackward && playbackStats.totalPlayTimeMs < fastSkipThresholdMs) {
+            if (!wentBackward && !reachedFar && playbackStats.totalPlayTimeMs < fastSkipThresholdMs) {
                 recordSkipAndMaybeBlacklist(mediaItem.mediaId)
             }
         }
@@ -5028,6 +5086,9 @@ class MusicService :
         const val AUTO_LIKE_COMPLETION_THRESHOLD = 2
         const val FAST_SKIP_THRESHOLD_MS = 10_000L
         const val AUTO_BLACKLIST_SKIP_THRESHOLD = 2
+        const val PLAYED_PERCENT_THRESHOLD = 100
+        const val AUTO_DELETE_EPISODE_PLAYS_THRESHOLD = 1
+        const val SKIP_POSITION_EXEMPT_PERCENT = 50
         const val ERROR_CODE_NO_STREAM = 1000001
         const val CHUNK_LENGTH = 512 * 1024L
         const val PERSISTENT_QUEUE_FILE = "persistent_queue.data"

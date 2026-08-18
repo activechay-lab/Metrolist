@@ -282,12 +282,18 @@
         <item quantity="one">1 skip</item>
         <item quantity="other">%d skips</item>
     </plurals>
+    <plurals name="plays">
+        <item quantity="one">1 play</item>
+        <item quantity="other">%d plays</item>
+    </plurals>
 
     <!-- Smart automation (auto-like / auto-blacklist) -->
     <string name="smart_automation">Smart automation</string>
     <string name="auto_like_on_completion">Auto-like on repeat listens</string>
     <string name="auto_like_on_completion_desc">Automatically like a song once you\'ve listened to it to completion this many times</string>
     <string name="auto_like_completion_threshold">Completions before auto-like</string>
+    <string name="played_percent_threshold">Played % needed to count as a listen</string>
+    <string name="played_percent_threshold_value">%1$d%% — reaching this counts toward auto-like, even if it doesn\'t play to the very end</string>
     <string name="auto_blacklist_on_skip">Auto-blacklist on fast skips</string>
     <string name="auto_blacklist_on_skip_desc">Automatically blacklist a song once you\'ve skipped it early this many times. Blacklisted songs are silently skipped everywhere — radio, playlists, shuffle</string>
     <string name="auto_blacklist_skip_threshold">Fast skips before auto-blacklist</string>
@@ -297,6 +303,14 @@
     <string name="add_to_blacklist">Add to blacklist</string>
     <string name="remove_from_blacklist">Remove from blacklist</string>
     <string name="blacklist_desc">Blacklisted songs are silently skipped wherever they appear</string>
+    <string name="blacklisted_on">Blacklisted %1$s · %2$s</string>
+    <string name="blacklist_reason_auto">Auto (fast-skipped repeatedly)</string>
+    <string name="blacklist_reason_manual">Manual</string>
+    <string name="skip_position_exempt_percent">Don\'t count as a skip if you\'d already reached</string>
+    <string name="skip_position_exempt_percent_value">%1$d%% of the track — covers fast-forwarding through it, not just listening at normal speed</string>
+    <string name="auto_delete_episode_after_plays">Auto-remove played episodes</string>
+    <string name="auto_delete_episode_after_plays_desc">Removes the download and takes a podcast episode off \"Episodes for later\" once it\'s been played this many times. Episodes are never auto-liked or auto-blacklisted, so this is the only automation that applies to them</string>
+    <string name="auto_delete_episode_plays_threshold">Plays before auto-remove</string>
 
     <!-- Sleep timer -->
     <string name="set_as_default">Set as default</string>

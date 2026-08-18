@@ -45,6 +45,10 @@ import com.metrolist.music.constants.AutoBlacklistOnSkipKey
 import com.metrolist.music.constants.AutoBlacklistSkipThresholdKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.AutoLikeCompletionThresholdKey
+import com.metrolist.music.constants.PlayedPercentThresholdKey
+import com.metrolist.music.constants.SkipPositionExemptPercentKey
+import com.metrolist.music.constants.AutoDeleteEpisodeAfterPlaysKey
+import com.metrolist.music.constants.AutoDeleteEpisodePlaysThresholdKey
 import com.metrolist.music.constants.AutoLikeOnCompletionKey
 import com.metrolist.music.constants.FastSkipThresholdSecondsKey
 import com.metrolist.music.constants.CrossfadeDurationKey
@@ -235,6 +239,10 @@ fun PlayerSettings(
         AutoLikeCompletionThresholdKey,
         defaultValue = 2
     )
+    val (playedPercentThreshold, onPlayedPercentThresholdChange) = rememberPreference(
+        PlayedPercentThresholdKey,
+        defaultValue = 100
+    )
     val (autoBlacklistOnSkip, onAutoBlacklistOnSkipChange) = rememberPreference(
         AutoBlacklistOnSkipKey,
         defaultValue = true
@@ -246,6 +254,18 @@ fun PlayerSettings(
     val (fastSkipThresholdSeconds, onFastSkipThresholdSecondsChange) = rememberPreference(
         FastSkipThresholdSecondsKey,
         defaultValue = 10
+    )
+    val (skipPositionExemptPercent, onSkipPositionExemptPercentChange) = rememberPreference(
+        SkipPositionExemptPercentKey,
+        defaultValue = 50
+    )
+    val (autoDeleteEpisodeAfterPlays, onAutoDeleteEpisodeAfterPlaysChange) = rememberPreference(
+        AutoDeleteEpisodeAfterPlaysKey,
+        defaultValue = false
+    )
+    val (autoDeleteEpisodePlaysThreshold, onAutoDeleteEpisodePlaysThresholdChange) = rememberPreference(
+        AutoDeleteEpisodePlaysThresholdKey,
+        defaultValue = 1
     )
 
     var showAudioQualityDialog by remember {
@@ -636,6 +656,21 @@ fun PlayerSettings(
                             }
                         }
                     ))
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.check),
+                        title = { Text(stringResource(R.string.played_percent_threshold)) },
+                        description = {
+                            Column {
+                                Text(stringResource(R.string.played_percent_threshold_value, playedPercentThreshold))
+                                Slider(
+                                    value = playedPercentThreshold.toFloat(),
+                                    onValueChange = { onPlayedPercentThresholdChange(it.roundToInt()) },
+                                    valueRange = 50f..100f,
+                                    steps = 9
+                                )
+                            }
+                        }
+                    ))
                 }
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.delete),
@@ -685,6 +720,59 @@ fun PlayerSettings(
                                     onValueChange = { onFastSkipThresholdSecondsChange(it.roundToInt()) },
                                     valueRange = 3f..30f,
                                     steps = 26
+                                )
+                            }
+                        }
+                    ))
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.fast_forward),
+                        title = { Text(stringResource(R.string.skip_position_exempt_percent)) },
+                        description = {
+                            Column {
+                                Text(stringResource(R.string.skip_position_exempt_percent_value, skipPositionExemptPercent))
+                                Slider(
+                                    value = skipPositionExemptPercent.toFloat(),
+                                    onValueChange = { onSkipPositionExemptPercentChange(it.roundToInt()) },
+                                    valueRange = 20f..90f,
+                                    steps = 13
+                                )
+                            }
+                        }
+                    ))
+                }
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.mic),
+                    title = { Text(stringResource(R.string.auto_delete_episode_after_plays)) },
+                    description = { Text(stringResource(R.string.auto_delete_episode_after_plays_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = autoDeleteEpisodeAfterPlays,
+                            onCheckedChange = onAutoDeleteEpisodeAfterPlaysChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (autoDeleteEpisodeAfterPlays) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onAutoDeleteEpisodeAfterPlaysChange(!autoDeleteEpisodeAfterPlays) }
+                ))
+                if (autoDeleteEpisodeAfterPlays) {
+                    add(Material3SettingsItem(
+                        icon = painterResource(R.drawable.history),
+                        title = { Text(stringResource(R.string.auto_delete_episode_plays_threshold)) },
+                        description = {
+                            Column {
+                                Text(pluralStringResource(R.plurals.plays, autoDeleteEpisodePlaysThreshold, autoDeleteEpisodePlaysThreshold))
+                                Slider(
+                                    value = autoDeleteEpisodePlaysThreshold.toFloat(),
+                                    onValueChange = { onAutoDeleteEpisodePlaysThresholdChange(it.roundToInt()) },
+                                    valueRange = 1f..5f,
+                                    steps = 3
                                 )
                             }
                         }

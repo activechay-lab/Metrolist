@@ -43,6 +43,9 @@ data class SongEntity(
     val blacklisted: Boolean = false,
     @ColumnInfo(name = "blacklistedDate", defaultValue = "NULL")
     val blacklistedDate: LocalDateTime? = null,
+    // "auto" (fast-skipped repeatedly) or "manual" (added via song menu)
+    @ColumnInfo(name = "blacklistReason", defaultValue = "NULL")
+    val blacklistReason: String? = null,
     val totalPlayTime: Long = 0, // in milliseconds
     val inLibrary: LocalDateTime? = null,
     val dateDownload: LocalDateTime? = null,
@@ -77,6 +80,7 @@ data class SongEntity(
             // blacklist — it always wins and clears any prior blacklist.
             blacklisted = if (!liked) false else blacklisted,
             blacklistedDate = if (!liked) null else blacklistedDate,
+            blacklistReason = if (!liked) null else blacklistReason,
         )
 
     fun toggleLike() =
@@ -86,6 +90,7 @@ data class SongEntity(
             inLibrary = if (!liked) inLibrary ?: LocalDateTime.now() else inLibrary,
             blacklisted = if (!liked) false else blacklisted,
             blacklistedDate = if (!liked) null else blacklistedDate,
+            blacklistReason = if (!liked) null else blacklistReason,
         ).also {
             CoroutineScope(Dispatchers.IO).launch {
                 YouTube.likeVideo(id, !liked)
