@@ -1604,9 +1604,44 @@ interface DatabaseDao {
     @Query("UPDATE song SET blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL WHERE id = :songId")
     fun unblacklistSong(songId: String)
 
+    // Sweep run once per app start when auto-unblacklist is enabled (see App.kt).
+    @Query("UPDATE song SET blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL WHERE blacklisted = 1 AND blacklistedDate < :cutoff")
+    fun unblacklistExpired(cutoff: LocalDateTime)
+
     @Transaction
     @Query("SELECT * FROM song WHERE blacklisted ORDER BY blacklistedDate DESC")
     fun blacklistedSongs(): Flow<List<Song>>
+
+    @Query("UPDATE artist SET blacklisted = 1, blacklistedDate = :blacklistedDate, blacklistReason = :reason WHERE id = :artistId")
+    fun blacklistArtist(artistId: String, blacklistedDate: LocalDateTime = LocalDateTime.now(), reason: String = "manual")
+
+    @Query("UPDATE artist SET blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL WHERE id = :artistId")
+    fun unblacklistArtist(artistId: String)
+
+    @Query("UPDATE album SET blacklisted = 1, blacklistedDate = :blacklistedDate, blacklistReason = :reason WHERE id = :albumId")
+    fun blacklistAlbum(albumId: String, blacklistedDate: LocalDateTime = LocalDateTime.now(), reason: String = "manual")
+
+    @Query("UPDATE album SET blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL WHERE id = :albumId")
+    fun unblacklistAlbum(albumId: String)
+
+    // Playback skip logic (MusicService) uses this: true if the song itself, or any of its
+    // artists/albums, is blacklisted.
+    @Query(
+        """
+        SELECT EXISTS(
+            SELECT 1 FROM song WHERE id = :songId AND blacklisted = 1
+            UNION
+            SELECT 1 FROM song_artist_map sam
+                JOIN artist a ON a.id = sam.artistId
+                WHERE sam.songId = :songId AND a.blacklisted = 1
+            UNION
+            SELECT 1 FROM song_album_map sam
+                JOIN album al ON al.id = sam.albumId
+                WHERE sam.songId = :songId AND al.blacklisted = 1
+        )
+        """
+    )
+    fun isEffectivelyBlacklisted(songId: String): Boolean
 
     /**
      * Increment by one the play count with today's year and month.

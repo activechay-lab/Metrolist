@@ -29,6 +29,7 @@ import com.metrolist.kugou.KuGou
 import com.metrolist.lastfm.LastFM
 import com.metrolist.music.BuildConfig
 import com.metrolist.music.constants.*
+import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
@@ -55,6 +56,7 @@ import java.io.IOException
 import java.net.Authenticator
 import java.net.PasswordAuthentication
 import java.net.Proxy
+import java.time.LocalDateTime
 import java.util.Locale
 import javax.inject.Inject
 
@@ -65,6 +67,9 @@ class App :
     @Inject
     @ApplicationScope
     lateinit var applicationScope: CoroutineScope
+
+    @Inject
+    lateinit var database: MusicDatabase
 
     override fun onCreate() {
         super.onCreate()
@@ -120,6 +125,15 @@ class App :
         val settings = dataStore.data.first()
         val locale = Locale.getDefault()
         val languageTag = locale.language
+
+        if (settings[AutoUnblacklistEnabledKey] == true) {
+            val days = settings[AutoUnblacklistDaysKey] ?: 30
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    database.unblacklistExpired(LocalDateTime.now().minusDays(days.toLong()))
+                }.onFailure { Timber.e(it, "Auto-unblacklist sweep failed") }
+            }
+        }
 
         ArtistConjunctions.conjunctions = listOf(
             R.string.and,

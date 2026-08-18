@@ -76,6 +76,7 @@ fun SelectionSongMenu(
     songPosition: List<PlaylistSongMap>? = emptyList(),
     isUploadedPlaylist: Boolean = false,
     onRemoveFromCache: (() -> Unit)? = null,
+    isBlacklistedPlaylist: Boolean = false,
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
@@ -645,6 +646,28 @@ fun SelectionSongMenu(
                                     },
                                     onClick = {
                                         showDeleteUploadedDialog = true
+                                    },
+                                ),
+                            )
+                        }
+                        if (isBlacklistedPlaylist) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.remove_from_blacklist)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.delete),
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        onDismiss()
+                                        database.query {
+                                            songSelection.forEach { song ->
+                                                unblacklistSong(song.id)
+                                            }
+                                        }
+                                        clearAction()
                                     },
                                 ),
                             )

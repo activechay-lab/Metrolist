@@ -35,7 +35,14 @@ data class AlbumEntity(
     @ColumnInfo(name = "isLocal", defaultValue = false.toString())
     val isLocal: Boolean = false,
     @ColumnInfo(name = "isUploaded", defaultValue = false.toString())
-    val isUploaded: Boolean = false
+    val isUploaded: Boolean = false,
+    @ColumnInfo(name = "blacklisted", defaultValue = "0")
+    val blacklisted: Boolean = false,
+    @ColumnInfo(name = "blacklistedDate", defaultValue = "NULL")
+    val blacklistedDate: LocalDateTime? = null,
+    // Always "manual" today — albums have no fast-skip auto-blacklist signal like songs do.
+    @ColumnInfo(name = "blacklistReason", defaultValue = "NULL")
+    val blacklistReason: String? = null,
 ) {
     fun localToggleLike() = copy(
         bookmarkedAt = if (bookmarkedAt != null) null else LocalDateTime.now()

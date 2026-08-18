@@ -238,7 +238,37 @@ fun ArtistMenu(
                                 update(artist.artist.toggleLike())
                             }
                         }
-                    )
+                    ),
+                    Material3MenuItemData(
+                        title = {
+                            Text(
+                                text = stringResource(
+                                    if (artist.artist.blacklisted) {
+                                        R.string.remove_artist_from_blacklist
+                                    } else {
+                                        R.string.add_artist_to_blacklist
+                                    },
+                                ),
+                            )
+                        },
+                        icon = {
+                            Icon(
+                                painter = painterResource(
+                                    if (artist.artist.blacklisted) R.drawable.remove else R.drawable.delete,
+                                ),
+                                contentDescription = null,
+                            )
+                        },
+                        onClick = {
+                            database.query {
+                                if (artist.artist.blacklisted) {
+                                    unblacklistArtist(artist.id)
+                                } else {
+                                    blacklistArtist(artist.id)
+                                }
+                            }
+                        },
+                    ),
                 )
             )
         }

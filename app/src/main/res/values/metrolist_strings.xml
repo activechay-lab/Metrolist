@@ -294,6 +294,10 @@
         <item quantity="one">1 play</item>
         <item quantity="other">%d plays</item>
     </plurals>
+    <plurals name="days">
+        <item quantity="one">1 day</item>
+        <item quantity="other">%d days</item>
+    </plurals>
 
     <!-- Smart automation (auto-like / auto-blacklist) -->
     <string name="smart_automation">Smart automation</string>
@@ -319,6 +323,41 @@
     <string name="auto_delete_episode_after_plays">Auto-remove played episodes</string>
     <string name="auto_delete_episode_after_plays_desc">Removes the download and takes a podcast episode off \"Episodes for later\" once it\'s been played this many times. Episodes are never auto-liked or auto-blacklisted, so this is the only automation that applies to them</string>
     <string name="auto_delete_episode_plays_threshold">Plays before auto-remove</string>
+
+    <!-- App name switcher -->
+    <string name="app_name_setting">App name</string>
+    <string name="app_name_setting_desc">Choose the name shown on your home screen</string>
+    <string name="app_name_default">Default</string>
+    <string name="app_name_change_toast">Home screen icon updating…</string>
+
+    <!-- Custom theme color -->
+    <string name="custom_color">Custom</string>
+    <string name="custom_color_dialog_title">Custom color</string>
+    <string name="custom_color_hex_label">Hex color</string>
+    <string name="custom_color_invalid">Enter a valid hex color, e.g. #FF5722</string>
+
+    <!-- Palette style -->
+    <string name="palette_style">Palette style</string>
+    <string name="palette_style_tonal_spot">Balanced (default)</string>
+    <string name="palette_style_neutral">Neutral</string>
+    <string name="palette_style_vibrant">Vibrant</string>
+    <string name="palette_style_expressive">Expressive</string>
+    <string name="palette_style_rainbow">Rainbow</string>
+    <string name="palette_style_fruit_salad">Fruit Salad</string>
+    <string name="palette_style_monochrome">Monochrome</string>
+    <string name="palette_style_fidelity">Fidelity</string>
+    <string name="palette_style_content">Content</string>
+
+    <!-- Auto-unblacklist -->
+    <string name="auto_unblacklist">Auto-unblacklist over time</string>
+    <string name="auto_unblacklist_desc">Automatically remove songs from the blacklist after they\'ve been on it for a while</string>
+    <string name="auto_unblacklist_days">Days before auto-unblacklist</string>
+
+    <!-- Artist / album blacklist -->
+    <string name="add_artist_to_blacklist">Blacklist this artist</string>
+    <string name="remove_artist_from_blacklist">Remove artist from blacklist</string>
+    <string name="add_album_to_blacklist">Blacklist this album</string>
+    <string name="remove_album_from_blacklist">Remove album from blacklist</string>
 
     <!-- Sleep timer -->
     <string name="set_as_default">Set as default</string>

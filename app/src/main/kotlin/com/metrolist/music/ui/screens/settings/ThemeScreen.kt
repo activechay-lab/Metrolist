@@ -1,6 +1,7 @@
 package com.metrolist.music.ui.screens.settings
 
 import android.content.res.Configuration
+import android.graphics.Color as AndroidColor
 import android.os.Build
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
@@ -47,13 +48,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,7 +82,10 @@ import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.DynamicThemeKey
 import com.metrolist.music.constants.PureBlackKey
 import com.metrolist.music.constants.PureBlackMiniPlayerKey
+import com.metrolist.music.constants.PaletteStyleKey
 import com.metrolist.music.constants.SelectedThemeColorKey
+import com.metrolist.music.ui.component.DefaultDialog
+import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.theme.DefaultThemeColor
 import com.metrolist.music.ui.theme.MetrolistTheme
 import com.metrolist.music.utils.rememberEnumPreference
@@ -132,6 +140,7 @@ fun ThemeScreen(
         DefaultThemeColor.toArgb()
     )
     val (_, onDynamicThemeChange) = rememberPreference(DynamicThemeKey, defaultValue = true)
+    val (paletteStyle, onPaletteStyleChange) = rememberEnumPreference(PaletteStyleKey, PaletteStyle.TonalSpot)
 
     val selectedThemeColor = Color(selectedThemeColorInt)
     val configuration = LocalConfiguration.current
@@ -154,7 +163,9 @@ fun ThemeScreen(
             pureBlack = pureBlack,
             onPureBlackChange = onPureBlackChange,
             selectedThemeColor = selectedThemeColor,
-            onSelectedThemeColorChange = handleColorSelection
+            onSelectedThemeColorChange = handleColorSelection,
+            paletteStyle = paletteStyle,
+            onPaletteStyleChange = onPaletteStyleChange
         )
     } else {
         PortraitThemeLayout(
@@ -164,7 +175,9 @@ fun ThemeScreen(
             pureBlack = pureBlack,
             onPureBlackChange = onPureBlackChange,
             selectedThemeColor = selectedThemeColor,
-            onSelectedThemeColorChange = handleColorSelection
+            onSelectedThemeColorChange = handleColorSelection,
+            paletteStyle = paletteStyle,
+            onPaletteStyleChange = onPaletteStyleChange
         )
     }
 
@@ -189,7 +202,9 @@ fun PortraitThemeLayout(
     pureBlack: Boolean,
     onPureBlackChange: (Boolean) -> Unit,
     selectedThemeColor: Color,
-    onSelectedThemeColorChange: (Color) -> Unit
+    onSelectedThemeColorChange: (Color) -> Unit,
+    paletteStyle: PaletteStyle,
+    onPaletteStyleChange: (PaletteStyle) -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -220,7 +235,9 @@ fun PortraitThemeLayout(
             pureBlack = pureBlack,
             onPureBlackChange = onPureBlackChange,
             selectedThemeColor = selectedThemeColor,
-            onSelectedThemeColorChange = onSelectedThemeColorChange
+            onSelectedThemeColorChange = onSelectedThemeColorChange,
+            paletteStyle = paletteStyle,
+            onPaletteStyleChange = onPaletteStyleChange
         )
 
         Spacer(modifier = Modifier.height(120.dp))
@@ -235,7 +252,9 @@ fun LandscapeThemeLayout(
     pureBlack: Boolean,
     onPureBlackChange: (Boolean) -> Unit,
     selectedThemeColor: Color,
-    onSelectedThemeColorChange: (Color) -> Unit
+    onSelectedThemeColorChange: (Color) -> Unit,
+    paletteStyle: PaletteStyle,
+    onPaletteStyleChange: (PaletteStyle) -> Unit
 ) {
     Row(
         modifier = Modifier
@@ -277,7 +296,9 @@ fun LandscapeThemeLayout(
                 pureBlack = pureBlack,
                 onPureBlackChange = onPureBlackChange,
                 selectedThemeColor = selectedThemeColor,
-                onSelectedThemeColorChange = onSelectedThemeColorChange
+                onSelectedThemeColorChange = onSelectedThemeColorChange,
+                paletteStyle = paletteStyle,
+                onPaletteStyleChange = onPaletteStyleChange
             )
 
             Spacer(modifier = Modifier.height(80.dp))
@@ -292,7 +313,9 @@ fun ThemeControls(
     pureBlack: Boolean,
     onPureBlackChange: (Boolean) -> Unit,
     selectedThemeColor: Color,
-    onSelectedThemeColorChange: (Color) -> Unit
+    onSelectedThemeColorChange: (Color) -> Unit,
+    paletteStyle: PaletteStyle,
+    onPaletteStyleChange: (PaletteStyle) -> Unit
 ) {
     Card(
         modifier = Modifier
@@ -329,7 +352,8 @@ fun ThemeControls(
                         onClick = {
                             onDarkModeChange(DarkMode.AUTO)
                         },
-                        showIcon = true
+                        showIcon = true,
+                        paletteStyle = paletteStyle
                     )
                     
                     // Vertical divider to separate System from manual modes
@@ -350,9 +374,10 @@ fun ThemeControls(
                             onDarkModeChange(DarkMode.OFF)
                             onPureBlackChange(false)
                         },
-                        showIcon = false
+                        showIcon = false,
+                        paletteStyle = paletteStyle
                     )
-                    
+
                     ModeCircle(
                         darkMode = darkMode,
                         pureBlack = pureBlack,
@@ -362,9 +387,10 @@ fun ThemeControls(
                             onDarkModeChange(DarkMode.ON)
                             onPureBlackChange(false)
                         },
-                        showIcon = false
+                        showIcon = false,
+                        paletteStyle = paletteStyle
                     )
-                    
+
                     ModeCircle(
                         darkMode = darkMode,
                         pureBlack = pureBlack,
@@ -374,7 +400,8 @@ fun ThemeControls(
                             onDarkModeChange(DarkMode.ON)
                             onPureBlackChange(true)
                         },
-                        showIcon = false
+                        showIcon = false,
+                        paletteStyle = paletteStyle
                     )
                 }
             }
@@ -386,6 +413,10 @@ fun ThemeControls(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 
+                var showCustomColorDialog by remember { mutableStateOf(false) }
+                val isCustomColorSelected = selectedThemeColor != DefaultThemeColor &&
+                    PaletteColors.none { it.seedColor != Color.Transparent && it.seedColor == selectedThemeColor }
+
                 LazyRow(
                     horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                     contentPadding = PaddingValues(horizontal = 4.dp)
@@ -397,20 +428,89 @@ fun ThemeControls(
                         } else {
                             selectedThemeColor == palette.seedColor
                         }
-                        
+
                         PaletteItem(
                             palette = palette,
                             isSelected = isSelected,
-                            onClick = { 
+                            paletteStyle = paletteStyle,
+                            onClick = {
                                 val colorToSave = if (isDynamicPalette) DefaultThemeColor else palette.seedColor
-                                onSelectedThemeColorChange(colorToSave) 
+                                onSelectedThemeColorChange(colorToSave)
                             }
                         )
                     }
+                    item {
+                        CustomColorItem(
+                            isSelected = isCustomColorSelected,
+                            onClick = { showCustomColorDialog = true }
+                        )
+                    }
+                }
+
+                if (showCustomColorDialog) {
+                    CustomColorPickerDialog(
+                        initialColor = selectedThemeColor,
+                        onDismiss = { showCustomColorDialog = false },
+                        onConfirm = { color ->
+                            onSelectedThemeColorChange(color)
+                            showCustomColorDialog = false
+                        }
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                var showPaletteStyleDialog by remember { mutableStateOf(false) }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { showPaletteStyleDialog = true }
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = stringResource(R.string.palette_style),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = stringResource(paletteStyleLabel(paletteStyle)),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                if (showPaletteStyleDialog) {
+                    EnumDialog(
+                        onDismiss = { showPaletteStyleDialog = false },
+                        onSelect = {
+                            onPaletteStyleChange(it)
+                            showPaletteStyleDialog = false
+                        },
+                        title = stringResource(R.string.palette_style),
+                        current = paletteStyle,
+                        values = PaletteStyle.entries,
+                        valueText = { stringResource(paletteStyleLabel(it)) }
+                    )
                 }
             }
         }
     }
+}
+
+private fun paletteStyleLabel(style: PaletteStyle) = when (style) {
+    PaletteStyle.TonalSpot -> R.string.palette_style_tonal_spot
+    PaletteStyle.Neutral -> R.string.palette_style_neutral
+    PaletteStyle.Vibrant -> R.string.palette_style_vibrant
+    PaletteStyle.Expressive -> R.string.palette_style_expressive
+    PaletteStyle.Rainbow -> R.string.palette_style_rainbow
+    PaletteStyle.FruitSalad -> R.string.palette_style_fruit_salad
+    PaletteStyle.Monochrome -> R.string.palette_style_monochrome
+    PaletteStyle.Fidelity -> R.string.palette_style_fidelity
+    PaletteStyle.Content -> R.string.palette_style_content
 }
 
 @Composable
@@ -420,6 +520,7 @@ fun ModeCircle(
     targetMode: DarkMode,
     targetPureBlack: Boolean,
     showIcon: Boolean,
+    paletteStyle: PaletteStyle,
     onClick: () -> Unit
 ) {
     val context = LocalContext.current
@@ -439,7 +540,7 @@ fun ModeCircle(
         rememberDynamicColorScheme(
             seedColor = DefaultThemeColor,
             isDark = effectiveDark,
-            style = PaletteStyle.TonalSpot
+            style = paletteStyle
         )
     }
     
@@ -548,14 +649,15 @@ fun ModeCircle(
 fun PaletteItem(
     palette: ThemePalette,
     isSelected: Boolean,
+    paletteStyle: PaletteStyle,
     onClick: () -> Unit
 ) {
     val isSystemDark = isSystemInDarkTheme()
-    
+
     val colorScheme = rememberDynamicColorScheme(
         seedColor = palette.seedColor,
         isDark = isSystemDark,
-        style = PaletteStyle.TonalSpot
+        style = paletteStyle
     )
     
     val cornerRadius by animateDpAsState(
@@ -659,6 +761,106 @@ fun PaletteItem(
             }
         }
     }
+}
+
+@Composable
+fun CustomColorItem(
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val shape = RoundedCornerShape(if (isSelected) 12.dp else 24.dp)
+    val contentDesc = stringResource(R.string.custom_color)
+
+    Box(
+        modifier = Modifier
+            .size(48.dp)
+            .clip(shape)
+            .then(
+                if (isSelected) {
+                    Modifier.border(
+                        width = 3.dp,
+                        color = MaterialTheme.colorScheme.inversePrimary,
+                        shape = shape
+                    )
+                } else {
+                    Modifier
+                }
+            )
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(onClick = onClick)
+            .semantics { contentDescription = contentDesc },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.edit),
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp)
+        )
+    }
+}
+
+@Composable
+fun CustomColorPickerDialog(
+    initialColor: Color,
+    onDismiss: () -> Unit,
+    onConfirm: (Color) -> Unit
+) {
+    var hexText by remember {
+        mutableStateOf(String.format("#%06X", initialColor.toArgb() and 0xFFFFFF))
+    }
+    val parsedColor = remember(hexText) {
+        runCatching { Color(AndroidColor.parseColor(hexText.trim())) }.getOrNull()
+    }
+
+    DefaultDialog(
+        onDismiss = onDismiss,
+        title = { Text(stringResource(R.string.custom_color_dialog_title)) },
+        content = {
+            Column(
+                modifier = Modifier.padding(horizontal = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(parsedColor ?: MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                    TextField(
+                        value = hexText,
+                        onValueChange = { hexText = it },
+                        label = { Text(stringResource(R.string.custom_color_hex_label)) },
+                        singleLine = true,
+                        isError = parsedColor == null,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                if (parsedColor == null) {
+                    Text(
+                        text = stringResource(R.string.custom_color_invalid),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        },
+        buttons = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(android.R.string.cancel))
+            }
+            TextButton(
+                onClick = { parsedColor?.let(onConfirm) },
+                enabled = parsedColor != null
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        }
+    )
 }
 
 @Composable
