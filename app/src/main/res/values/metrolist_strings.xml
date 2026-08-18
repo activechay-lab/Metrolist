@@ -1112,4 +1112,10 @@
     <string name="stream_source_web_creator_desc">Creator web client.</string>
     <string name="stream_source_android_creator">ANDROID_CREATOR</string>
     <string name="stream_source_android_creator_desc">Android creator client. Off by default; needs DroidGuard.</string>
+
+    <!-- Unified blacklist screen -->
+    <string name="blacklist">Blacklist</string>
+    <string name="blacklist_songs_empty">No blacklisted songs</string>
+    <string name="blacklist_artists_empty">No blacklisted artists</string>
+    <string name="blacklist_albums_empty">No blacklisted albums</string>
 </resources>
