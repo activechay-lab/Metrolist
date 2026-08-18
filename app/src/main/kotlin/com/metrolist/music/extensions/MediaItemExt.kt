@@ -18,7 +18,7 @@ import com.metrolist.music.ui.utils.resize
 val MediaItem.metadata: MediaMetadata?
     get() = localConfiguration?.tag as? MediaMetadata
 
-fun Song.toMediaItem() = MediaItem.Builder()
+fun Song.toMediaItem(allowBlacklistedPlayback: Boolean = false) = MediaItem.Builder()
     .setMediaId(song.id)
     .setUri(song.id)
     .setCustomCacheKey(song.id)
@@ -37,6 +37,9 @@ fun Song.toMediaItem() = MediaItem.Builder()
             .setIsPlayable(true)
             .setExtras(Bundle().apply {
                 putString("artwork_uri", song.thumbnailUrl)
+                if (allowBlacklistedPlayback) {
+                    putBoolean("allow_blacklisted_playback", true)
+                }
             })
             .build()
     )

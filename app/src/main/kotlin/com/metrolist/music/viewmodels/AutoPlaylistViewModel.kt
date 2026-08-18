@@ -15,6 +15,7 @@ import com.metrolist.music.constants.SongSortDescendingKey
 import com.metrolist.music.constants.SongSortType
 import com.metrolist.music.constants.SongSortTypeKey
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.db.entities.Song
 import com.metrolist.music.extensions.filterExplicit
 import com.metrolist.music.extensions.filterVideoSongs
 import com.metrolist.music.extensions.toEnum
@@ -95,6 +96,33 @@ constructor(
                 "uploaded" -> syncUtils.syncUploadedSongsSuspend()
             }
             _isRefreshing.value = false
+        }
+    }
+
+    // Local-only: blacklisting has no YouTube-sync component.
+    fun removeAllAutoBlacklisted() {
+        viewModelScope.launch(Dispatchers.IO) { database.unblacklistAllAuto() }
+    }
+
+    fun removeAllManualBlacklisted() {
+        viewModelScope.launch(Dispatchers.IO) { database.unblacklistAllManual() }
+    }
+
+    // Reuses toggleLike() (not a raw bulk UPDATE) so each song's YouTube like
+    // state stays in sync — see SongEntity.toggleLike().
+    fun unlikeAllAuto(currentSongs: List<Song>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            currentSongs
+                .filter { it.song.liked && it.song.likedReason == "auto" }
+                .forEach { database.update(it.song.toggleLike()) }
+        }
+    }
+
+    fun unlikeAllManual(currentSongs: List<Song>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            currentSongs
+                .filter { it.song.liked && it.song.likedReason != "auto" }
+                .forEach { database.update(it.song.toggleLike()) }
         }
     }
 }

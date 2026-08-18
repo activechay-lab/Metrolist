@@ -37,6 +37,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -441,6 +443,60 @@ fun AutoPlaylistScreen(
         )
     }
 
+    // Bulk-by-reason removal (blacklisted/liked screens only) — see TopAppBar actions below
+    // for the DropdownMenu that sets this.
+    var pendingBulkRemoval by remember { mutableStateOf<String?>(null) }
+
+    pendingBulkRemoval?.let { action ->
+        val matchingCount = when (action) {
+            "auto_blacklist" -> songs.orEmpty().count { it.song.blacklistReason == null || it.song.blacklistReason == "auto" }
+            "manual_blacklist" -> songs.orEmpty().count { it.song.blacklistReason == "manual" }
+            "auto_liked" -> songs.orEmpty().count { it.song.likedReason == "auto" }
+            else -> songs.orEmpty().count { it.song.likedReason != "auto" }
+        }
+        val titleRes = when (action) {
+            "auto_blacklist" -> R.string.remove_all_auto_blacklisted
+            "manual_blacklist" -> R.string.remove_all_manual_blacklisted
+            "auto_liked" -> R.string.remove_all_auto_liked
+            else -> R.string.remove_all_manual_liked
+        }
+        val confirmRes = when (action) {
+            "auto_blacklist" -> R.string.remove_all_auto_blacklisted_confirm
+            "manual_blacklist" -> R.string.remove_all_manual_blacklisted_confirm
+            "auto_liked" -> R.string.remove_all_auto_liked_confirm
+            else -> R.string.remove_all_manual_liked_confirm
+        }
+        DefaultDialog(
+            onDismiss = { pendingBulkRemoval = null },
+            title = { Text(stringResource(titleRes)) },
+            content = {
+                Text(
+                    text = stringResource(confirmRes, matchingCount),
+                    style = MaterialTheme.typography.bodyLarge,
+                    modifier = Modifier.padding(horizontal = 18.dp),
+                )
+            },
+            buttons = {
+                TextButton(onClick = { pendingBulkRemoval = null }) {
+                    Text(text = stringResource(android.R.string.cancel))
+                }
+                TextButton(
+                    onClick = {
+                        when (action) {
+                            "auto_blacklist" -> viewModel.removeAllAutoBlacklisted()
+                            "manual_blacklist" -> viewModel.removeAllManualBlacklisted()
+                            "auto_liked" -> viewModel.unlikeAllAuto(songs.orEmpty())
+                            "manual_liked" -> viewModel.unlikeAllManual(songs.orEmpty())
+                        }
+                        pendingBulkRemoval = null
+                    },
+                ) {
+                    Text(text = stringResource(android.R.string.ok))
+                }
+            },
+        )
+    }
+
     // Upload progress dialog
     if (showUploadDialog) {
         DefaultDialog(
@@ -561,6 +617,7 @@ fun AutoPlaylistScreen(
                                 onShowRemoveDownloadDialog = { showRemoveDownloadDialog = true },
                                 menuState = menuState,
                                 modifier = Modifier.animateItem(),
+                                allowBlacklistedPlayback = viewModel.playlist == "blacklisted",
                             )
                         }
                     }
@@ -620,12 +677,29 @@ fun AutoPlaylistScreen(
                             null
                         }
 
+                        val likedSubtitle = if (viewModel.playlist == "liked") {
+                            // Rows liked before this column existed have likedReason
+                            // == null — since liking predates auto-like, treat that
+                            // as manual (the opposite convention from blacklist above).
+                            val reasonRes = if (song.song.likedReason == "auto") {
+                                R.string.like_reason_auto
+                            } else {
+                                R.string.like_reason_manual
+                            }
+                            val dateText = song.song.likedDate
+                                ?.format(blacklistDateFormatter)
+                                .orEmpty()
+                            stringResource(R.string.liked_on, dateText, stringResource(reasonRes))
+                        } else {
+                            null
+                        }
+
                         SongListItem(
                             song = song,
                             isActive = song.song.id == mediaMetadata?.id,
                             isPlaying = isPlaying,
                             showInLibraryIcon = true,
-                            subtitleOverride = blacklistSubtitle,
+                            subtitleOverride = blacklistSubtitle ?: likedSubtitle,
                             trailingContent = {
                                 if (inSelectMode) {
                                     Checkbox(
@@ -663,7 +737,9 @@ fun AutoPlaylistScreen(
                                                 playerConnection.playQueue(
                                                     ListQueue(
                                                         title = playlist,
-                                                        items = songs!!.map { it.toMediaItem() },
+                                                        items = songs!!.map {
+                                                            it.toMediaItem(allowBlacklistedPlayback = viewModel.playlist == "blacklisted")
+                                                        },
                                                         startIndex = songs!!.indexOfFirst { it.id == song.id },
                                                     ),
                                                 )
@@ -864,6 +940,7 @@ fun AutoPlaylistScreen(
                                     clearAction = onExitSelectionMode,
                                     isUploadedPlaylist = playlistType == PlaylistType.UPLOADED,
                                     isBlacklistedPlaylist = viewModel.playlist == "blacklisted",
+                                    isLikedPlaylist = viewModel.playlist == "liked",
                                 )
                             }
                         },
@@ -874,6 +951,53 @@ fun AutoPlaylistScreen(
                         )
                     }
                 } else if (!isSearching) {
+                    if (viewModel.playlist == "blacklisted" || viewModel.playlist == "liked") {
+                        var showBulkMenu by remember { mutableStateOf(false) }
+                        Box {
+                            IconButton(onClick = { showBulkMenu = true }) {
+                                Icon(
+                                    painter = painterResource(R.drawable.more_vert),
+                                    contentDescription = null,
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = showBulkMenu,
+                                onDismissRequest = { showBulkMenu = false },
+                            ) {
+                                if (viewModel.playlist == "blacklisted") {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.remove_all_auto_blacklisted)) },
+                                        onClick = {
+                                            showBulkMenu = false
+                                            pendingBulkRemoval = "auto_blacklist"
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.remove_all_manual_blacklisted)) },
+                                        onClick = {
+                                            showBulkMenu = false
+                                            pendingBulkRemoval = "manual_blacklist"
+                                        },
+                                    )
+                                } else {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.remove_all_auto_liked)) },
+                                        onClick = {
+                                            showBulkMenu = false
+                                            pendingBulkRemoval = "auto_liked"
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.remove_all_manual_liked)) },
+                                        onClick = {
+                                            showBulkMenu = false
+                                            pendingBulkRemoval = "manual_liked"
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    }
                     IconButton(
                         onClick = { isSearching = true },
                     ) {
@@ -897,6 +1021,7 @@ private fun AutoPlaylistHeader(
     onShowRemoveDownloadDialog: () -> Unit,
     menuState: com.metrolist.music.ui.component.MenuState,
     modifier: Modifier = Modifier,
+    allowBlacklistedPlayback: Boolean = false,
 ) {
     val playerConnection = LocalPlayerConnection.current ?: return
     val context = LocalContext.current
@@ -976,7 +1101,7 @@ private fun AutoPlaylistHeader(
                     playerConnection.playQueue(
                         ListQueue(
                             title = name,
-                            items = songs.shuffled().map { it.toMediaItem() },
+                            items = songs.shuffled().map { it.toMediaItem(allowBlacklistedPlayback) },
                         ),
                     )
                 },
@@ -1002,7 +1127,7 @@ private fun AutoPlaylistHeader(
                     playerConnection.playQueue(
                         ListQueue(
                             title = name,
-                            items = songs.map { it.toMediaItem() },
+                            items = songs.map { it.toMediaItem(allowBlacklistedPlayback) },
                         ),
                     )
                 },
@@ -1031,7 +1156,7 @@ private fun AutoPlaylistHeader(
                             downloadState = downloadState,
                             onQueue = {
                                 playerConnection.addToQueue(
-                                    songs.map { it.toMediaItem() },
+                                    songs.map { it.toMediaItem(allowBlacklistedPlayback) },
                                 )
                             },
                             onDownload = {

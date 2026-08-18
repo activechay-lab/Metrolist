@@ -78,6 +78,7 @@ fun SelectionSongMenu(
     songPosition: List<PlaylistSongMap>? = emptyList(),
     isUploadedPlaylist: Boolean = false,
     isBlacklistedPlaylist: Boolean = false,
+    isLikedPlaylist: Boolean = false,
 ) {
     val context = LocalContext.current
     val database = LocalDatabase.current
@@ -670,6 +671,30 @@ fun SelectionSongMenu(
                                         database.query {
                                             songSelection.forEach { song ->
                                                 unblacklistSong(song.id)
+                                            }
+                                        }
+                                        clearAction()
+                                    },
+                                ),
+                            )
+                        }
+                        if (isLikedPlaylist) {
+                            add(
+                                Material3MenuItemData(
+                                    title = { Text(text = stringResource(R.string.remove_from_liked)) },
+                                    icon = {
+                                        Icon(
+                                            painter = painterResource(R.drawable.delete),
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        onDismiss()
+                                        // Reuses toggleLike() rather than a raw unlike query so
+                                        // each song's YouTube like state stays in sync.
+                                        database.query {
+                                            songSelection.filter { it.song.liked }.forEach { song ->
+                                                update(song.song.toggleLike())
                                             }
                                         }
                                         clearAction()
