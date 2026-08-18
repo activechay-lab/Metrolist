@@ -1598,10 +1598,10 @@ interface DatabaseDao {
     fun getSongSkipCountOrNull(songId: String): Int?
 
     // Mutually exclusive with liked: blacklisting always clears any existing like.
-    @Query("UPDATE song SET blacklisted = 1, blacklistedDate = :blacklistedDate, liked = 0, likedDate = NULL WHERE id = :songId")
-    fun blacklistSong(songId: String, blacklistedDate: LocalDateTime = LocalDateTime.now())
+    @Query("UPDATE song SET blacklisted = 1, blacklistedDate = :blacklistedDate, blacklistReason = :reason, liked = 0, likedDate = NULL WHERE id = :songId")
+    fun blacklistSong(songId: String, blacklistedDate: LocalDateTime = LocalDateTime.now(), reason: String = "manual")
 
-    @Query("UPDATE song SET blacklisted = 0, blacklistedDate = NULL WHERE id = :songId")
+    @Query("UPDATE song SET blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL WHERE id = :songId")
     fun unblacklistSong(songId: String)
 
     @Transaction

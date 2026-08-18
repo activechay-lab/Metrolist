@@ -5,6 +5,7 @@
 
 package com.metrolist.music.ui.screens.playlist
 
+import java.time.format.DateTimeFormatter
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -458,6 +459,8 @@ fun AutoPlaylistScreen(
         }
     }
 
+    val blacklistDateFormatter = remember { DateTimeFormatter.ofPattern("MMM dd, yyyy HH:mm") }
+
     val filteredSongs =
         remember(songs, query) {
             if (query.text.isEmpty()) {
@@ -568,11 +571,30 @@ fun AutoPlaylistScreen(
                             }
                         }
 
+                        val blacklistSubtitle = if (viewModel.playlist == "blacklisted") {
+                            // Rows blacklisted by the auto-skip feature before the
+                            // reason column existed have blacklistReason == null —
+                            // treat that as auto too, "manual" only for the explicit
+                            // song-menu action.
+                            val reasonRes = if (song.song.blacklistReason == "manual") {
+                                R.string.blacklist_reason_manual
+                            } else {
+                                R.string.blacklist_reason_auto
+                            }
+                            val dateText = song.song.blacklistedDate
+                                ?.format(blacklistDateFormatter)
+                                .orEmpty()
+                            stringResource(R.string.blacklisted_on, dateText, stringResource(reasonRes))
+                        } else {
+                            null
+                        }
+
                         SongListItem(
                             song = song,
                             isActive = song.song.id == mediaMetadata?.id,
                             isPlaying = isPlaying,
                             showInLibraryIcon = true,
+                            subtitleOverride = blacklistSubtitle,
                             trailingContent = {
                                 if (inSelectMode) {
                                     Checkbox(
