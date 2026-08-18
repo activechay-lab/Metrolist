@@ -157,6 +157,7 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleLike
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMode
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
+import com.metrolist.music.constants.MediaSessionConstants.CommandToggleBlacklist
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
@@ -699,6 +700,7 @@ class MusicService :
             toggleStartRadio = ::toggleStartRadio
             toggleLibrary = ::toggleLibrary
             addToTargetPlaylist = ::addToTargetPlaylist
+            toggleBlacklist = ::toggleBlacklist
         }
         mediaSession =
             MediaLibrarySession
@@ -1585,7 +1587,10 @@ class MusicService :
         player.pause()
     }
 
-    private fun updateNotification(isLiked: Boolean? = currentSong.value?.song?.let { if (it.isEpisode) it.inLibrary != null else it.liked }) {
+    private fun updateNotification(
+        isLiked: Boolean? = currentSong.value?.song?.let { if (it.isEpisode) it.inLibrary != null else it.liked },
+        isBlacklisted: Boolean? = currentSong.value?.song?.blacklisted,
+    ) {
         mediaSession?.setCustomLayout(
             listOf(
                 CommandButton
@@ -1640,6 +1645,20 @@ class MusicService :
                     .setDisplayName(getString(R.string.android_auto_target_playlist))
                     .setIconResId(R.drawable.playlist_add)
                     .setSessionCommand(CommandAddToTargetPlaylist)
+                    .setEnabled(currentSong.value != null)
+                    .build(),
+                CommandButton
+                    .Builder()
+                    .setDisplayName(
+                        getString(
+                            if (isBlacklisted == true) {
+                                R.string.remove_from_blacklist
+                            } else {
+                                R.string.add_to_blacklist
+                            },
+                        ),
+                    ).setIconResId(if (isBlacklisted == true) R.drawable.remove else R.drawable.delete)
+                    .setSessionCommand(CommandToggleBlacklist)
                     .setEnabled(currentSong.value != null)
                     .build(),
             ),
@@ -2333,6 +2352,32 @@ class MusicService :
                             downloadRequest,
                             false,
                         )
+                    }
+                }
+                currentMediaMetadata.value = player.currentMetadata
+            }
+        }
+    }
+
+    // Mirrors SongMenu.kt's blacklist toggle: blacklistSong() clears any
+    // existing like as part of the same query (see DatabaseDao.kt), so the
+    // optimistic isLiked passed to updateNotification() reflects that too.
+    fun toggleBlacklist() {
+        scope.launch {
+            val songToToggle = currentSong.first()
+            songToToggle?.let { librarySong ->
+                val songEntity = librarySong.song
+                val newBlacklisted = !songEntity.blacklisted
+                val newLiked = if (newBlacklisted) false else songEntity.liked
+
+                updateNotification(isLiked = newLiked, isBlacklisted = newBlacklisted)
+                updateWidgetUI(player.isPlaying, isLiked = newLiked)
+
+                database.query {
+                    if (newBlacklisted) {
+                        blacklistSong(songEntity.id)
+                    } else {
+                        unblacklistSong(songEntity.id)
                     }
                 }
                 currentMediaMetadata.value = player.currentMetadata
