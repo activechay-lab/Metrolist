@@ -1,6 +1,6 @@
-# Working with Metrolist as an AI agent
+# Working with TuneTube as an AI agent
 
-Metrolist is a 3rd party YouTube Music client written in Kotlin. It follows material 3 design guidelines closely.
+TuneTube (a personal fork of Metrolist) is a 3rd party YouTube Music client written in Kotlin. It follows material 3 design guidelines closely.
 
 ## Rules for working on the project
 
