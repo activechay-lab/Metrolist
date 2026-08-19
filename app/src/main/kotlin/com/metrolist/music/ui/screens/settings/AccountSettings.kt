@@ -56,25 +56,35 @@ import coil3.compose.AsyncImage
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.utils.parseCookieString
 import com.metrolist.music.BuildConfig
+import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
 import com.metrolist.music.constants.AccountChannelHandleKey
 import com.metrolist.music.constants.AccountEmailKey
 import com.metrolist.music.constants.AccountNameKey
+import com.metrolist.music.constants.ActiveProfileKey
 import com.metrolist.music.constants.DataSyncIdKey
 import com.metrolist.music.constants.InnerTubeCookieKey
+import com.metrolist.music.constants.MrsAccountNameKey
+import com.metrolist.music.constants.MrsInnerTubeCookieKey
+import com.metrolist.music.constants.MrsModeSeedSource
+import com.metrolist.music.constants.MrsModeSeedSourceKey
+import com.metrolist.music.constants.MrsModeProfile
 import com.metrolist.music.constants.UseLoginForBrowse
 import com.metrolist.music.constants.VisitorDataKey
 import com.metrolist.music.constants.YtmSyncKey
 import com.metrolist.music.ui.component.DefaultDialog
+import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.InfoLabel
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.PreferenceEntry
 import com.metrolist.music.ui.component.TextFieldDialog
 import com.metrolist.music.utils.Updater
+import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.AccountSettingsViewModel
 import com.metrolist.music.viewmodels.HomeViewModel
+import com.metrolist.music.viewmodels.MrsModeViewModel
 
 @Composable
 fun AccountSettings(
@@ -100,12 +110,37 @@ fun AccountSettings(
 
     val homeViewModel: HomeViewModel = hiltViewModel()
     val accountSettingsViewModel: AccountSettingsViewModel = hiltViewModel()
+    val mrsModeViewModel: MrsModeViewModel = hiltViewModel()
+    val mrsModePlayerConnection = LocalPlayerConnection.current
     val accountName by homeViewModel.accountName.collectAsStateWithLifecycle()
     val accountImageUrl by homeViewModel.accountImageUrl.collectAsStateWithLifecycle()
+
+    // Route through MusicService so "jump to her music" (which needs the live
+    // player) actually runs — MrsModeViewModel.toggle() only does the account
+    // swap itself, with no player access, so it's just a fallback for the
+    // rare case the service isn't bound yet.
+    fun toggleMrsModeViaService() {
+        val service = mrsModePlayerConnection?.service
+        if (service != null) {
+            service.toggleMrsMode()
+        } else {
+            mrsModeViewModel.toggle()
+        }
+    }
+
+    val (mrsAccountName) = rememberPreference(MrsAccountNameKey, "")
+    val (mrsInnerTubeCookie) = rememberPreference(MrsInnerTubeCookieKey, "")
+    val isMrsAccountConfigured = remember(mrsInnerTubeCookie) {
+        "SAPISID" in parseCookieString(mrsInnerTubeCookie)
+    }
+    val activeProfile by rememberEnumPreference(ActiveProfileKey, MrsModeProfile.NORMAL)
+    val (mrsModeSeedSource, onMrsModeSeedSourceChange) = rememberEnumPreference(MrsModeSeedSourceKey, MrsModeSeedSource.LIKED)
+    var showMrsModeSeedSourceDialog by remember { mutableStateOf(false) }
 
     var showToken by remember { mutableStateOf(false) }
     var showTokenEditor by remember { mutableStateOf(false) }
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var showRemoveMrsAccountDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
     Column(
@@ -182,6 +217,34 @@ fun AccountSettings(
                         }
                     ) {
                         Text(stringResource(R.string.logout_keep))
+                    }
+                }
+            )
+        }
+
+        // Remove-Mrs-account confirmation dialog
+        if (showRemoveMrsAccountDialog) {
+            DefaultDialog(
+                onDismiss = { showRemoveMrsAccountDialog = false },
+                title = { Text(stringResource(R.string.mrs_mode_remove_account)) },
+                content = {
+                    Text(
+                        text = stringResource(R.string.mrs_mode_remove_account_confirm),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.padding(horizontal = 18.dp)
+                    )
+                },
+                buttons = {
+                    TextButton(onClick = { showRemoveMrsAccountDialog = false }) {
+                        Text(stringResource(android.R.string.cancel))
+                    }
+                    TextButton(
+                        onClick = {
+                            mrsModeViewModel.removeMrsAccount()
+                            showRemoveMrsAccountDialog = false
+                        }
+                    ) {
+                        Text(stringResource(R.string.mrs_mode_remove_account))
                     }
                 }
             )
@@ -302,6 +365,108 @@ fun AccountSettings(
             ),
             useLowContrast = true
         )
+
+        Spacer(Modifier.height(8.dp))
+
+        Material3SettingsGroup(
+            items = listOf(
+                Material3SettingsItem(
+                    title = { Text(stringResource(R.string.mrs_mode_account)) },
+                    description = {
+                        Text(
+                            if (isMrsAccountConfigured) {
+                                stringResource(R.string.mrs_mode_signed_in_as, mrsAccountName)
+                            } else {
+                                stringResource(R.string.mrs_mode_not_signed_in)
+                            }
+                        )
+                    },
+                    icon = painterResource(if (isMrsAccountConfigured) R.drawable.mrs_mode_on else R.drawable.mrs_mode_outline),
+                    trailingContent = {
+                        if (isMrsAccountConfigured) {
+                            OutlinedButton(
+                                onClick = { showRemoveMrsAccountDialog = true },
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    contentColor = MaterialTheme.colorScheme.onSurface
+                                )
+                            ) {
+                                Text(stringResource(R.string.mrs_mode_remove_account))
+                            }
+                        }
+                    },
+                    onClick = {
+                        if (!isMrsAccountConfigured) {
+                            onClose()
+                            navController.navigate("login_mrs")
+                        }
+                    }
+                ),
+                Material3SettingsItem(
+                    title = { Text(stringResource(R.string.mrs_mode)) },
+                    description = { Text(stringResource(R.string.mrs_mode_account_desc)) },
+                    icon = painterResource(R.drawable.mrs_mode_on),
+                    trailingContent = {
+                        Switch(
+                            enabled = isMrsAccountConfigured,
+                            checked = activeProfile == MrsModeProfile.MRS,
+                            onCheckedChange = { toggleMrsModeViaService() },
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (activeProfile == MrsModeProfile.MRS) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    enabled = isMrsAccountConfigured
+                ),
+                Material3SettingsItem(
+                    title = { Text(stringResource(R.string.mrs_mode_seed_source)) },
+                    description = {
+                        Text(
+                            stringResource(
+                                when (mrsModeSeedSource) {
+                                    MrsModeSeedSource.OFF -> R.string.mrs_mode_seed_source_off
+                                    MrsModeSeedSource.LIKED -> R.string.mrs_mode_seed_source_liked
+                                    MrsModeSeedSource.HISTORY -> R.string.mrs_mode_seed_source_history
+                                    MrsModeSeedSource.RANDOM -> R.string.mrs_mode_seed_source_random
+                                }
+                            )
+                        )
+                    },
+                    icon = painterResource(R.drawable.radio),
+                    onClick = { showMrsModeSeedSourceDialog = true }
+                )
+            ),
+            useLowContrast = true
+        )
+
+        if (showMrsModeSeedSourceDialog) {
+            EnumDialog(
+                onDismiss = { showMrsModeSeedSourceDialog = false },
+                onSelect = {
+                    onMrsModeSeedSourceChange(it)
+                    showMrsModeSeedSourceDialog = false
+                },
+                title = stringResource(R.string.mrs_mode_seed_source),
+                current = mrsModeSeedSource,
+                values = MrsModeSeedSource.entries,
+                valueText = {
+                    stringResource(
+                        when (it) {
+                            MrsModeSeedSource.OFF -> R.string.mrs_mode_seed_source_off
+                            MrsModeSeedSource.LIKED -> R.string.mrs_mode_seed_source_liked
+                            MrsModeSeedSource.HISTORY -> R.string.mrs_mode_seed_source_history
+                            MrsModeSeedSource.RANDOM -> R.string.mrs_mode_seed_source_random
+                        }
+                    )
+                }
+            )
+        }
 
         Spacer(Modifier.height(8.dp))
 

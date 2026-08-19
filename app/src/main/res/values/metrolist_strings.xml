@@ -328,6 +328,26 @@
     <string name="auto_delete_episode_after_plays_desc">Removes the download and takes a podcast episode off \"Episodes for later\" once it\'s been played this many times. Episodes are never auto-liked or auto-blacklisted, so this is the only automation that applies to them</string>
     <string name="auto_delete_episode_plays_threshold">Plays before auto-remove</string>
 
+    <!-- Mrs Mode -->
+    <string name="mrs_mode">Mrs Mode</string>
+    <string name="mrs_mode_on">Mrs Mode: On</string>
+    <string name="mrs_mode_off">Mrs Mode: Off</string>
+    <string name="mrs_mode_account">Mrs Mode account</string>
+    <string name="mrs_mode_account_desc">Log in with a second YouTube Music account. Switching Mrs Mode on swaps the whole personalized experience — Home, radio, autoplay, likes, history — over to that account</string>
+    <string name="mrs_mode_log_in">Log in Mrs account</string>
+    <string name="mrs_mode_remove_account">Remove Mrs account</string>
+    <string name="mrs_mode_remove_account_confirm">Remove the Mrs Mode account? This switches back to Normal Mode and forgets the saved session — you\'ll need to log in again to use Mrs Mode.</string>
+    <string name="mrs_mode_not_configured">Log in a Mrs account first (Settings → Account)</string>
+    <string name="mrs_mode_signed_in_as">Signed in as %1$s</string>
+    <string name="mrs_mode_not_signed_in">Not signed in</string>
+    <string name="mrs_mode_now_playing_hers">🎀 Now playing her music</string>
+    <string name="mrs_mode_now_playing_yours">Now playing your music</string>
+    <string name="mrs_mode_seed_source">What to play on switch</string>
+    <string name="mrs_mode_seed_source_off">Off — keep current song playing</string>
+    <string name="mrs_mode_seed_source_liked">Liked songs</string>
+    <string name="mrs_mode_seed_source_history">Recently played</string>
+    <string name="mrs_mode_seed_source_random">Random (liked or recent)</string>
+
     <!-- App name switcher -->
     <string name="app_name_setting">App name</string>
     <string name="app_name_setting_desc">Choose the name shown on your home screen</string>

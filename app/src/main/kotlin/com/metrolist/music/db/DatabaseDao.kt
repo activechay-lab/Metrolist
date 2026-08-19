@@ -13,6 +13,7 @@ import androidx.room.Query
 import androidx.room.RawQuery
 import androidx.room.RewriteQueriesToDropUnusedColumns
 import androidx.room.RoomWarnings
+import androidx.room.SkipQueryVerification
 import androidx.room.Transaction
 import androidx.room.Update
 import androidx.room.Upsert
@@ -333,13 +334,14 @@ interface DatabaseDao {
         WHERE songId IN (SELECT songId
                          FROM (SELECT songId
                                FROM event
+                               WHERE profile = :profile
                                ORDER BY ROWID DESC
                                LIMIT 5)
                          UNION
                          SELECT songId
                          FROM (SELECT songId
                                FROM event
-                               WHERE timestamp > :now - 86400000 * 7
+                               WHERE timestamp > :now - 86400000 * 7 AND profile = :profile
                                GROUP BY songId
                                ORDER BY SUM(playTime) DESC
                                LIMIT 5)
@@ -353,7 +355,7 @@ interface DatabaseDao {
         LIMIT 100
     """,
     )
-    fun quickPicks(now: Long = System.currentTimeMillis()): Flow<List<Song>>
+    fun quickPicks(now: Long = System.currentTimeMillis(), profile: String = "NORMAL"): Flow<List<Song>>
 
     @Transaction
     @Query(
@@ -650,11 +652,11 @@ interface DatabaseDao {
                        JOIN
                    (SELECT songId, SUM(playTime) AS newPlayTime
                     FROM event
-                    WHERE timestamp > (:now - 86400000 * 30 * 1)
+                    WHERE timestamp > (:now - 86400000 * 30 * 1) AND profile = :profile
                     GROUP BY songId
                     ORDER BY newPlayTime) as n
                    ON event.songId = n.songId
-              WHERE timestamp < (:now - 86400000 * 30 * 1)
+              WHERE timestamp < (:now - 86400000 * 30 * 1) AND event.profile = :profile
               GROUP BY n.songId
               ORDER BY oldPlayTime) AS t
                  JOIN song on song.id = t.eid
@@ -662,7 +664,7 @@ interface DatabaseDao {
         LIMIT 100
     """
     )
-    fun forgottenFavorites(now: Long = System.currentTimeMillis()): Flow<List<Song>>
+    fun forgottenFavorites(now: Long = System.currentTimeMillis(), profile: String = "NORMAL"): Flow<List<Song>>
 
     @Transaction
     @Query(
@@ -692,6 +694,21 @@ interface DatabaseDao {
     @Transaction
     @Query("SELECT * FROM song WHERE id = :songId LIMIT 1")
     suspend fun getSongById(songId: String): Song?
+
+    // Reads song_profile_state directly (not song.liked, which only reflects
+    // whichever profile is CURRENTLY active) so this works regardless of
+    // swap timing — a reliable, explicit-positive-signal seed for "jump to
+    // her music" on profile switch.
+    @Transaction
+    @Query(
+        """
+        SELECT song.* FROM song_profile_state ps
+        JOIN song ON song.id = ps.songId
+        WHERE ps.profile = :profile AND ps.liked = 1
+        ORDER BY RANDOM() LIMIT 1
+        """,
+    )
+    suspend fun randomLikedSongForProfile(profile: String): Song?
 
     @Transaction
     @Query("SELECT * FROM song WHERE id = :songId LIMIT 1")
@@ -1510,6 +1527,12 @@ interface DatabaseDao {
     @Query("SELECT * FROM event ORDER BY rowId ASC LIMIT 1")
     fun firstEvent(): Flow<EventWithSong?>
 
+    // Most recent song a given Mrs Mode profile actually listened to — used to
+    // seed "jump straight to her music" radio when switching profiles.
+    @Transaction
+    @Query("SELECT * FROM event WHERE profile = :profile ORDER BY rowId DESC LIMIT 1")
+    fun lastEventForProfile(profile: String = "NORMAL"): Flow<EventWithSong?>
+
     @Query("SELECT COUNT(*) FROM event")
     fun eventCount(): Flow<Int>
 
@@ -1564,52 +1587,55 @@ interface DatabaseDao {
 
     /**
      * Records that [songId] was played to completion (reached the end of
-     * playback naturally) and returns the song's updated completion count.
+     * playback naturally) under [profile] and returns that profile's updated
+     * completion count for the song.
      */
     @Transaction
-    fun recordSongCompletion(songId: String): Int {
-        upsertSongCompletion(songId)
-        return getSongCompletionCount(songId)
+    fun recordSongCompletion(songId: String, profile: String = "NORMAL"): Int {
+        upsertSongCompletion(songId, profile)
+        return getSongCompletionCount(songId, profile)
     }
 
     @Query(
         """
-        INSERT INTO song_completion (songId, count)
-        VALUES (:songId, 1)
-        ON CONFLICT(songId) DO UPDATE SET count = count + 1
+        INSERT INTO song_completion (songId, profile, count)
+        VALUES (:songId, :profile, 1)
+        ON CONFLICT(songId, profile) DO UPDATE SET count = count + 1
         """,
     )
-    fun upsertSongCompletion(songId: String)
+    fun upsertSongCompletion(songId: String, profile: String = "NORMAL")
 
-    @Query("SELECT count FROM song_completion WHERE songId = :songId")
-    fun getSongCompletionCountOrNull(songId: String): Int?
+    @Query("SELECT count FROM song_completion WHERE songId = :songId AND profile = :profile")
+    fun getSongCompletionCountOrNull(songId: String, profile: String = "NORMAL"): Int?
 
-    fun getSongCompletionCount(songId: String): Int = getSongCompletionCountOrNull(songId) ?: 0
+    fun getSongCompletionCount(songId: String, profile: String = "NORMAL"): Int =
+        getSongCompletionCountOrNull(songId, profile) ?: 0
 
     @Query("SELECT * FROM song WHERE id = :songId")
     fun songEntityOrNull(songId: String): SongEntity?
 
     /**
      * Records that [songId] was skipped quickly (abandoned early, not
-     * completed) and returns the song's updated fast-skip count.
+     * completed) under [profile] and returns that profile's updated fast-skip
+     * count for the song.
      */
     @Transaction
-    fun recordSongSkip(songId: String): Int {
-        upsertSongSkip(songId)
-        return getSongSkipCountOrNull(songId) ?: 0
+    fun recordSongSkip(songId: String, profile: String = "NORMAL"): Int {
+        upsertSongSkip(songId, profile)
+        return getSongSkipCountOrNull(songId, profile) ?: 0
     }
 
     @Query(
         """
-        INSERT INTO song_skip (songId, count)
-        VALUES (:songId, 1)
-        ON CONFLICT(songId) DO UPDATE SET count = count + 1
+        INSERT INTO song_skip (songId, profile, count)
+        VALUES (:songId, :profile, 1)
+        ON CONFLICT(songId, profile) DO UPDATE SET count = count + 1
         """,
     )
-    fun upsertSongSkip(songId: String)
+    fun upsertSongSkip(songId: String, profile: String = "NORMAL")
 
-    @Query("SELECT count FROM song_skip WHERE songId = :songId")
-    fun getSongSkipCountOrNull(songId: String): Int?
+    @Query("SELECT count FROM song_skip WHERE songId = :songId AND profile = :profile")
+    fun getSongSkipCountOrNull(songId: String, profile: String = "NORMAL"): Int?
 
     // Mutually exclusive with liked: blacklisting always clears any existing like.
     @Query("UPDATE song SET blacklisted = 1, blacklistedDate = :blacklistedDate, blacklistReason = :reason, liked = 0, likedDate = NULL WHERE id = :songId")
@@ -1673,6 +1699,87 @@ interface DatabaseDao {
         """
     )
     fun isEffectivelyBlacklisted(songId: String): Boolean
+
+    // --- Mrs Mode: active-profile swap -------------------------------------
+    //
+    // song.liked/blacklisted/isDownloaded (+ their date/reason columns) always
+    // reflect the CURRENTLY ACTIVE profile's view, exactly as liked/blacklisted
+    // did before Mrs Mode existed — isDownloaded only scopes which profile
+    // SEES a song as downloaded, the underlying cached audio file is never
+    // duplicated. A trigger (song_state_mirror, added in MIGRATION_44_45,
+    // replacing MIGRATION_43_44's song_like_blacklist_mirror) mirrors every
+    // write to those columns into song_profile_state for whichever profile
+    // active_profile currently names, so none of the existing like/blacklist/
+    // download call sites throughout the app need to change. swapActiveProfile()
+    // is what runs when Mrs Mode is toggled: it resets and restores song.* from
+    // song_profile_state so it reflects that profile's own state going forward.
+
+    // active_profile is a bare table created only via raw SQL in MIGRATION_43_44
+    // (no corresponding @Entity), so Room's compile-time query verifier can't
+    // resolve it against the known entity graph — skip verification for it.
+    @SkipQueryVerification
+    @Query("UPDATE active_profile SET profile = :profile WHERE id = 0")
+    fun setActiveProfile(profile: String)
+
+    @Query(
+        """
+        UPDATE song SET
+            liked = 0, likedDate = NULL, likedReason = NULL,
+            blacklisted = 0, blacklistedDate = NULL, blacklistReason = NULL,
+            isDownloaded = 0, dateDownload = NULL
+        """,
+    )
+    fun resetAllSongLikeBlacklistState()
+
+    // Correlated-subquery UPDATE (rather than SQLite's UPDATE...FROM, added in
+    // 3.33) for broader compatibility across Android's bundled SQLite versions.
+    @Query(
+        """
+        UPDATE song SET
+            liked = COALESCE((SELECT liked FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile), 0),
+            likedDate = (SELECT likedDate FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile),
+            likedReason = (SELECT likedReason FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile),
+            blacklisted = COALESCE((SELECT blacklisted FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile), 0),
+            blacklistedDate = (SELECT blacklistedDate FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile),
+            blacklistReason = (SELECT blacklistReason FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile),
+            isDownloaded = COALESCE((SELECT isDownloaded FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile), 0),
+            dateDownload = (SELECT dateDownload FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile)
+        WHERE EXISTS (SELECT 1 FROM song_profile_state ps WHERE ps.songId = song.id AND ps.profile = :profile)
+        """,
+    )
+    fun restoreSongLikeBlacklistStateForProfile(profile: String)
+
+    @Query("DELETE FROM song_profile_state WHERE profile = :profile")
+    fun discardProfileState(profile: String)
+
+    /**
+     * Switches the local liked/blacklisted/downloaded view over to
+     * [newProfile]. Called by [com.metrolist.music.utils.MrsModeManager]
+     * whenever Mrs Mode is toggled.
+     *
+     * The reset+restore below are themselves UPDATEs to song.*, so the
+     * song_state_mirror trigger (MIGRATION_44_45) fires for them too, same as
+     * it would for a genuine user like/blacklist/download action. Pointing
+     * active_profile at [newProfile] before doing that housekeeping would make
+     * the trigger mirror the reset's zeroing (and then the restore's own
+     * writes) into [newProfile]'s row, clobbering whatever it actually had
+     * saved — so instead active_profile is parked on a throwaway sentinel for
+     * the whole reset+restore, and only pointed at [newProfile] once song.*
+     * already reflects it and real user actions can resume being mirrored
+     * correctly. The sentinel's rows are then discarded.
+     */
+    @Transaction
+    fun swapActiveProfile(newProfile: String) {
+        setActiveProfile(SWAP_SENTINEL_PROFILE)
+        resetAllSongLikeBlacklistState()
+        restoreSongLikeBlacklistStateForProfile(newProfile)
+        discardProfileState(SWAP_SENTINEL_PROFILE)
+        setActiveProfile(newProfile)
+    }
+
+    companion object {
+        private const val SWAP_SENTINEL_PROFILE = "__SWAPPING__"
+    }
 
     /**
      * Increment by one the play count with today's year and month.

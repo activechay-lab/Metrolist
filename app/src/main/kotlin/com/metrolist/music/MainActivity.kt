@@ -133,8 +133,10 @@ import coil3.toBitmap
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
+import com.metrolist.music.constants.ActiveProfileKey
 import com.metrolist.music.constants.AppBarHeight
 import com.metrolist.music.constants.AppLanguageKey
+import com.metrolist.music.constants.MrsModeProfile
 import com.metrolist.music.constants.CheckForUpdatesKey
 import com.metrolist.music.constants.DarkModeKey
 import com.metrolist.music.constants.DefaultOpenTabKey
@@ -208,6 +210,7 @@ import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.utils.reportException
 import com.metrolist.music.utils.setAppLocale
 import com.metrolist.music.viewmodels.HomeViewModel
+import com.metrolist.music.viewmodels.MrsModeViewModel
 import com.metrolist.music.widget.PlaylistWidgetReceiver
 import com.valentinilk.shimmer.LocalShimmerTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -698,6 +701,8 @@ class MainActivity : ComponentActivity() {
 
                 val homeViewModel: HomeViewModel = hiltViewModel()
                 val accountImageUrl by homeViewModel.accountImageUrl.collectAsStateWithLifecycle()
+                val mrsModeViewModel: MrsModeViewModel = hiltViewModel()
+                val activeProfile by rememberEnumPreference(ActiveProfileKey, MrsModeProfile.NORMAL)
                 val navBackStackEntry by navController.currentBackStackEntryAsState()
                 val (previousTab, setPreviousTab) = rememberSaveable { mutableStateOf("home") }
 
@@ -1048,6 +1053,31 @@ class MainActivity : ComponentActivity() {
                                                         contentDescription = stringResource(R.string.together),
                                                     )
                                                 }
+                                            }
+                                            val mrsModePlayerConnection = LocalPlayerConnection.current
+                                            IconButton(
+                                                onClick = {
+                                                    // Route through MusicService so the "jump to
+                                                    // her music" behavior (which needs the live
+                                                    // player) runs — MrsModeViewModel.toggle() only
+                                                    // does the account swap itself, with no player
+                                                    // access, so it's just a fallback for the rare
+                                                    // case the service isn't bound yet.
+                                                    val service = mrsModePlayerConnection?.service
+                                                    if (service != null) {
+                                                        service.toggleMrsMode()
+                                                    } else {
+                                                        mrsModeViewModel.toggle()
+                                                    }
+                                                },
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(
+                                                        if (activeProfile == MrsModeProfile.MRS) R.drawable.mrs_mode_on else R.drawable.mrs_mode_outline,
+                                                    ),
+                                                    contentDescription = stringResource(R.string.mrs_mode),
+                                                    tint = if (activeProfile == MrsModeProfile.MRS) MaterialTheme.colorScheme.primary else LocalContentColor.current,
+                                                )
                                             }
                                             IconButton(onClick = { showAccountDialog = true }) {
                                                 BadgedBox(badge = {

@@ -38,6 +38,12 @@ import com.metrolist.music.constants.AccountEmailKey
 import com.metrolist.music.constants.AccountNameKey
 import com.metrolist.music.constants.DataSyncIdKey
 import com.metrolist.music.constants.InnerTubeCookieKey
+import com.metrolist.music.constants.MrsAccountChannelHandleKey
+import com.metrolist.music.constants.MrsAccountEmailKey
+import com.metrolist.music.constants.MrsAccountNameKey
+import com.metrolist.music.constants.MrsDataSyncIdKey
+import com.metrolist.music.constants.MrsInnerTubeCookieKey
+import com.metrolist.music.constants.MrsVisitorDataKey
 import com.metrolist.music.constants.VisitorDataKey
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.utils.backToMain
@@ -48,10 +54,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import timber.log.Timber
 
+/** Which credential slot a [LoginScreen] run should capture into. */
+enum class AccountSlot {
+    PRIMARY,
+    MRS,
+}
+
 @SuppressLint("SetJavaScriptEnabled")
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun LoginScreen(navController: NavController) {
+fun LoginScreen(navController: NavController, targetSlot: AccountSlot = AccountSlot.PRIMARY) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isCompletingLogin by remember { mutableStateOf(false) }
@@ -103,12 +115,25 @@ fun LoginScreen(navController: NavController) {
                     // launch intent and exit the process so all services reinitialize cleanly.
                     val saved = withContext(Dispatchers.IO) {
                         context.safeDataStoreEdit { settings ->
-                            settings[InnerTubeCookieKey] = currentCookie
-                            settings[VisitorDataKey] = savedVisitorData
-                            settings[DataSyncIdKey] = savedDataSyncId
-                            settings[AccountNameKey] = info.name
-                            settings[AccountEmailKey] = info.email.orEmpty()
-                            settings[AccountChannelHandleKey] = info.channelHandle.orEmpty()
+                            if (targetSlot == AccountSlot.PRIMARY) {
+                                settings[InnerTubeCookieKey] = currentCookie
+                                settings[VisitorDataKey] = savedVisitorData
+                                settings[DataSyncIdKey] = savedDataSyncId
+                                settings[AccountNameKey] = info.name
+                                settings[AccountEmailKey] = info.email.orEmpty()
+                                settings[AccountChannelHandleKey] = info.channelHandle.orEmpty()
+                            } else {
+                                // Only the Mrs vault is written here — the live keys
+                                // (and therefore the active session) are left exactly
+                                // as they were. MrsModeManager copies this vault into
+                                // the live keys the next time Mrs Mode is toggled on.
+                                settings[MrsInnerTubeCookieKey] = currentCookie
+                                settings[MrsVisitorDataKey] = savedVisitorData
+                                settings[MrsDataSyncIdKey] = savedDataSyncId
+                                settings[MrsAccountNameKey] = info.name
+                                settings[MrsAccountEmailKey] = info.email.orEmpty()
+                                settings[MrsAccountChannelHandleKey] = info.channelHandle.orEmpty()
+                            }
                         }
                     }
 

@@ -29,4 +29,8 @@ data class Event(
     @ColumnInfo(index = true) val songId: String,
     val timestamp: LocalDateTime,
     val playTime: Long,
+    // "NORMAL" or "MRS" (see MrsModeProfile) — which profile was active when
+    // this play happened. Drives per-profile Quick Picks/Forgotten Favorites.
+    @ColumnInfo(defaultValue = "'NORMAL'")
+    val profile: String = "NORMAL",
 )

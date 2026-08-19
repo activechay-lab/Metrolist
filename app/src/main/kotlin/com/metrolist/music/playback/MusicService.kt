@@ -93,12 +93,14 @@ import androidx.media3.session.SessionToken
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.MoreExecutors
 import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.utils.completed
 import com.metrolist.innertube.strategy.ContentHints
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
 import com.metrolist.lastfm.LastFM
 import com.metrolist.music.MainActivity
 import com.metrolist.music.R
+import com.metrolist.music.constants.ActiveProfileKey
 import com.metrolist.music.constants.AndroidAutoTargetPlaylistKey
 import com.metrolist.music.constants.AudioNormalizationKey
 import com.metrolist.music.constants.AudioOffload
@@ -158,6 +160,12 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMo
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleBlacklist
+import com.metrolist.music.constants.LastPlayedSongIdMrsKey
+import com.metrolist.music.constants.LastPlayedSongIdNormalKey
+import com.metrolist.music.constants.MediaSessionConstants.CommandToggleMrsMode
+import com.metrolist.music.constants.MrsModeSeedSource
+import com.metrolist.music.constants.MrsModeSeedSourceKey
+import com.metrolist.music.constants.MrsModeProfile
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
@@ -218,6 +226,7 @@ import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
 import com.metrolist.music.utils.CoilBitmapLoader
+import com.metrolist.music.utils.MrsModeManager
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
 import com.metrolist.music.utils.SyncUtils
@@ -287,6 +296,9 @@ class MusicService :
 
     @Inject
     lateinit var syncUtils: SyncUtils
+
+    @Inject
+    lateinit var mrsModeManager: MrsModeManager
 
     @Inject
     lateinit var mediaLibrarySessionCallback: MediaLibrarySessionCallback
@@ -701,6 +713,7 @@ class MusicService :
             toggleLibrary = ::toggleLibrary
             addToTargetPlaylist = ::addToTargetPlaylist
             toggleBlacklist = ::toggleBlacklist
+            toggleMrsMode = ::toggleMrsMode
         }
         mediaSession =
             MediaLibrarySession
@@ -1590,9 +1603,20 @@ class MusicService :
     private fun updateNotification(
         isLiked: Boolean? = currentSong.value?.song?.let { if (it.isEpisode) it.inLibrary != null else it.liked },
         isBlacklisted: Boolean? = currentSong.value?.song?.blacklisted,
+        isMrsMode: Boolean = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name) == MrsModeProfile.MRS.name,
     ) {
         mediaSession?.setCustomLayout(
             listOf(
+                // First in the list on purpose: this is the button that needs
+                // to be reachable in one tap on Android Auto without digging
+                // into an overflow menu — everything below it is lower
+                // priority for one-hand/while-driving use.
+                CommandButton
+                    .Builder()
+                    .setDisplayName(getString(if (isMrsMode) R.string.mrs_mode_on else R.string.mrs_mode_off))
+                    .setIconResId(if (isMrsMode) R.drawable.mrs_mode_on else R.drawable.mrs_mode_outline)
+                    .setSessionCommand(CommandToggleMrsMode)
+                    .build(),
                 CommandButton
                     .Builder()
                     .setDisplayName(
@@ -1803,11 +1827,12 @@ class MusicService :
 
         val likeThreshold = dataStore.get(AutoLikeCompletionThresholdKey, AUTO_LIKE_COMPLETION_THRESHOLD)
         val deleteThreshold = dataStore.get(AutoDeleteEpisodePlaysThresholdKey, AUTO_DELETE_EPISODE_PLAYS_THRESHOLD)
+        val activeProfile = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
 
         database.query {
             val completions =
                 try {
-                    recordSongCompletion(songId)
+                    recordSongCompletion(songId, activeProfile)
                 } catch (_: SQLException) {
                     return@query
                 }
@@ -1855,10 +1880,11 @@ class MusicService :
     private fun recordSkipAndMaybeBlacklist(songId: String) {
         if (!dataStore.get(AutoBlacklistOnSkipKey, true)) return
         val threshold = dataStore.get(AutoBlacklistSkipThresholdKey, AUTO_BLACKLIST_SKIP_THRESHOLD)
+        val activeProfile = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
         database.query {
             val skips =
                 try {
-                    recordSongSkip(songId)
+                    recordSongSkip(songId, activeProfile)
                 } catch (_: SQLException) {
                     return@query
                 }
@@ -2385,6 +2411,106 @@ class MusicService :
         }
     }
 
+    private fun toastOnMain(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(this@MusicService, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun profileSwitchedMessage(profile: MrsModeProfile, songTitle: String?): String {
+        val base = getString(if (profile == MrsModeProfile.MRS) R.string.mrs_mode_now_playing_hers else R.string.mrs_mode_now_playing_yours)
+        return if (songTitle != null) "$base — $songTitle" else base
+    }
+
+    // A random pick from the profile's REAL YouTube Music "Liked Music"
+    // library, fetched fresh from the server now that its account is active —
+    // reflects the actual account regardless of whether it's ever used this
+    // app before. Falls back to a locally-liked song under this profile
+    // (song_profile_state, immune to any swap timing) if the server call
+    // fails (offline, rate-limited) or the account has no liked songs.
+    private suspend fun mrsModeLikedSeed(profile: MrsModeProfile): Song? {
+        val serverLiked = runCatching {
+            YouTube.playlist("LM").completed().getOrNull()?.songs?.randomOrNull()?.let { database.song(it.id).first() }
+        }.getOrNull()
+        return serverLiked ?: database.randomLikedSongForProfile(profile.name)
+    }
+
+    // The profile's most recently played song: prefers the immediate
+    // last-played pointer (set the instant a track starts, see
+    // onMediaItemTransition), falling back to the slower listening-history
+    // table (only populated once a play clears HistoryDuration's threshold).
+    private suspend fun mrsModeHistorySeed(profile: MrsModeProfile): Song? {
+        val pointerKey = if (profile == MrsModeProfile.MRS) LastPlayedSongIdMrsKey else LastPlayedSongIdNormalKey
+        val seedSongId = dataStore.get(pointerKey, "").ifBlank { null }
+            ?: database.lastEventForProfile(profile.name).first()?.song?.id
+        return seedSongId?.let { database.song(it).first() }
+    }
+
+    // Switches the active Mrs Mode profile. By default this never touches
+    // player/mediaSession — the currently playing song keeps playing, and only
+    // the next radio/autoplay/related-song fetch (and Home/library data)
+    // reflects the new profile. If MrsModeSeedSourceKey isn't OFF, it instead
+    // immediately jumps playback to a song picked per that setting and starts
+    // radio from there — e.g. for one-tap "switch to her music" while
+    // driving, no searching required.
+    fun toggleMrsMode() {
+        scope.launch {
+            val newProfile = mrsModeManager.toggle()
+            if (newProfile == null) {
+                Handler(Looper.getMainLooper()).post {
+                    Toast
+                        .makeText(
+                            this@MusicService,
+                            getString(R.string.mrs_mode_not_configured),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                }
+                return@launch
+            }
+            updateNotification()
+
+            val seedSource = dataStore.get(MrsModeSeedSourceKey, MrsModeSeedSource.LIKED.name).toEnum(MrsModeSeedSource.LIKED)
+            if (seedSource == MrsModeSeedSource.OFF) {
+                toastOnMain(profileSwitchedMessage(newProfile, songTitle = null))
+                return@launch
+            }
+
+            try {
+                val seedSong = withContext(Dispatchers.IO) {
+                    when (seedSource) {
+                        MrsModeSeedSource.LIKED -> mrsModeLikedSeed(newProfile) ?: mrsModeHistorySeed(newProfile)
+                        MrsModeSeedSource.HISTORY -> mrsModeHistorySeed(newProfile) ?: mrsModeLikedSeed(newProfile)
+                        MrsModeSeedSource.RANDOM -> listOfNotNull(mrsModeLikedSeed(newProfile), mrsModeHistorySeed(newProfile)).randomOrNull()
+                        MrsModeSeedSource.OFF -> null
+                    }
+                }
+                Timber.tag(TAG).d("toggleMrsMode: $seedSource seed for $newProfile = ${seedSong?.id}")
+                if (seedSong == null) {
+                    toastOnMain(profileSwitchedMessage(newProfile, songTitle = null))
+                    return@launch
+                }
+
+                val seedMediaMetadata = seedSong.toMediaMetadata()
+                val queue = YouTubeQueue.radio(seedMediaMetadata)
+                // playQueue()'s own internal coroutine swallows exceptions
+                // silently (SilentHandler) — build the queue's initial status
+                // here FIRST, inside this function's own try/catch, so a
+                // failure (bad endpoint, network error, etc.) is actually
+                // caught and surfaced instead of vanishing.
+                val initialStatus = withContext(Dispatchers.IO) { queue.getInitialStatus() }
+                if (initialStatus.items.isEmpty()) {
+                    toastOnMain(profileSwitchedMessage(newProfile, songTitle = null))
+                    return@launch
+                }
+                toastOnMain(profileSwitchedMessage(newProfile, songTitle = seedMediaMetadata.title))
+                playQueue(queue)
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "toggleMrsMode: jump-to-history failed")
+                toastOnMain(profileSwitchedMessage(newProfile, songTitle = null))
+            }
+        }
+    }
+
     fun addToTargetPlaylist() {
         scope.launch {
             val currentSong = currentSong.first() ?: return@launch
@@ -2660,6 +2786,12 @@ class MusicService :
             val allowBlacklistedPlayback =
                 mediaItem.mediaMetadata.extras?.getBoolean("allow_blacklisted_playback") == true
             skipIfBlacklisted(mediaId, allowBlacklistedPlayback)
+
+            val activeProfile = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
+            val lastPlayedKey = if (activeProfile == MrsModeProfile.MRS.name) LastPlayedSongIdMrsKey else LastPlayedSongIdNormalKey
+            scope.launch(Dispatchers.IO) {
+                safeDataStoreEdit { settings -> settings[lastPlayedKey] = mediaId }
+            }
         }
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
@@ -4148,6 +4280,7 @@ class MusicService :
         if (playbackStats.totalPlayTimeMs >= historyDurationMs &&
             !dataStore.get(PauseListenHistoryKey, false)
         ) {
+            val activeProfile = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
             database.query {
                 incrementTotalPlayTime(mediaItem.mediaId, playbackStats.totalPlayTimeMs)
                 try {
@@ -4156,6 +4289,7 @@ class MusicService :
                             songId = mediaItem.mediaId,
                             timestamp = LocalDateTime.now(),
                             playTime = playbackStats.totalPlayTimeMs,
+                            profile = activeProfile,
                         ),
                     )
                 } catch (_: SQLException) {

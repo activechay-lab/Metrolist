@@ -422,6 +422,10 @@ fun NavGraphBuilder.navigationBuilder(
         LoginScreen(navController)
     }
 
+    composable("login_mrs") {
+        LoginScreen(navController, targetSlot = AccountSlot.MRS)
+    }
+
     composable("wrapped") {
         WrappedScreen()
     }

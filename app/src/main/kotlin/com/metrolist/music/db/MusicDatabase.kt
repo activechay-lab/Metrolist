@@ -41,6 +41,7 @@ import com.metrolist.music.db.entities.SongAlbumMap
 import com.metrolist.music.db.entities.SongArtistMap
 import com.metrolist.music.db.entities.SongCompletionEntity
 import com.metrolist.music.db.entities.SongEntity
+import com.metrolist.music.db.entities.SongProfileStateEntity
 import com.metrolist.music.db.entities.SongSkipEntity
 import com.metrolist.music.db.entities.SortedSongAlbumMap
 import com.metrolist.music.db.entities.SortedSongArtistMap
@@ -116,13 +117,14 @@ class MusicDatabase(
         PodcastEntity::class,
         SongCompletionEntity::class,
         SongSkipEntity::class,
+        SongProfileStateEntity::class,
     ],
     views = [
         SortedSongArtistMap::class,
         SortedSongAlbumMap::class,
         PlaylistSongMapPreview::class,
     ],
-    version = 43,
+    version = 45,
     exportSchema = true,
     autoMigrations = [
         AutoMigration(from = 2, to = 3),
@@ -210,6 +212,8 @@ abstract class InternalDatabase : RoomDatabase() {
                     MIGRATION_21_24,
                     MIGRATION_22_24,
                     MIGRATION_24_25,
+                    MIGRATION_43_44,
+                    MIGRATION_44_45,
                 ).fallbackToDestructiveMigration()
                 .setJournalMode(RoomDatabase.JournalMode.WRITE_AHEAD_LOGGING)
                 .setTransactionExecutor(
@@ -850,6 +854,167 @@ val MIGRATION_24_25 =
                 // Add the column allowing NULL values (since existing rows won't have this data)
                 db.execSQL("ALTER TABLE format ADD COLUMN perceptualLoudnessDb REAL DEFAULT NULL")
             }
+        }
+    }
+
+/**
+ * Adds Mrs Mode's per-profile local-data scoping:
+ * - `event.profile` so listening history splits between the Normal and Mrs
+ *   profiles.
+ * - `song_skip`/`song_completion` recreated with a composite (songId, profile)
+ *   primary key, so fast-skip/completion counters (and the auto-blacklist/
+ *   auto-like they drive) are tracked independently per profile.
+ * - `song_profile_state`, holding each profile's own liked/blacklisted view of
+ *   every song, seeded from today's global song.liked/blacklisted under
+ *   'NORMAL'.
+ * - `active_profile`, a 1-row table naming the currently active profile, read
+ *   by a trigger that mirrors every write to song.liked/blacklisted into
+ *   song_profile_state for whichever profile is active. This lets ~14 existing
+ *   like/blacklist call sites across the app keep writing to song.* exactly as
+ *   before with no changes, while still ending up correctly profile-scoped.
+ *   DatabaseDao.swapActiveProfile() is what actually flips song.* to a
+ *   different profile's view when Mrs Mode is toggled.
+ */
+val MIGRATION_43_44 =
+    object : Migration(43, 44) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE event ADD COLUMN profile TEXT NOT NULL DEFAULT 'NORMAL'")
+
+            db.execSQL(
+                "CREATE TABLE song_skip_new (" +
+                    "songId TEXT NOT NULL, " +
+                    "profile TEXT NOT NULL DEFAULT 'NORMAL', " +
+                    "count INTEGER NOT NULL, " +
+                    "PRIMARY KEY(songId, profile), " +
+                    "FOREIGN KEY(songId) REFERENCES song(id) ON DELETE CASCADE)",
+            )
+            db.execSQL("INSERT INTO song_skip_new (songId, profile, count) SELECT songId, 'NORMAL', count FROM song_skip")
+            db.execSQL("DROP TABLE song_skip")
+            db.execSQL("ALTER TABLE song_skip_new RENAME TO song_skip")
+            db.execSQL("CREATE INDEX index_song_skip_songId ON song_skip(songId)")
+
+            db.execSQL(
+                "CREATE TABLE song_completion_new (" +
+                    "songId TEXT NOT NULL, " +
+                    "profile TEXT NOT NULL DEFAULT 'NORMAL', " +
+                    "count INTEGER NOT NULL, " +
+                    "PRIMARY KEY(songId, profile), " +
+                    "FOREIGN KEY(songId) REFERENCES song(id) ON DELETE CASCADE)",
+            )
+            db.execSQL(
+                "INSERT INTO song_completion_new (songId, profile, count) SELECT songId, 'NORMAL', count FROM song_completion",
+            )
+            db.execSQL("DROP TABLE song_completion")
+            db.execSQL("ALTER TABLE song_completion_new RENAME TO song_completion")
+            db.execSQL("CREATE INDEX index_song_completion_songId ON song_completion(songId)")
+
+            db.execSQL(
+                "CREATE TABLE song_profile_state (" +
+                    "songId TEXT NOT NULL, " +
+                    "profile TEXT NOT NULL, " +
+                    "liked INTEGER NOT NULL DEFAULT 0, " +
+                    "likedDate INTEGER, " +
+                    "likedReason TEXT, " +
+                    "blacklisted INTEGER NOT NULL DEFAULT 0, " +
+                    "blacklistedDate INTEGER, " +
+                    "blacklistReason TEXT, " +
+                    "PRIMARY KEY(songId, profile), " +
+                    "FOREIGN KEY(songId) REFERENCES song(id) ON DELETE CASCADE)",
+            )
+            db.execSQL("CREATE INDEX index_song_profile_state_songId ON song_profile_state(songId)")
+            db.execSQL(
+                "INSERT INTO song_profile_state " +
+                    "(songId, profile, liked, likedDate, likedReason, blacklisted, blacklistedDate, blacklistReason) " +
+                    "SELECT id, 'NORMAL', liked, likedDate, likedReason, blacklisted, blacklistedDate, blacklistReason " +
+                    "FROM song WHERE liked = 1 OR blacklisted = 1",
+            )
+
+            db.execSQL("CREATE TABLE active_profile (id INTEGER PRIMARY KEY CHECK (id = 0), profile TEXT NOT NULL)")
+            db.execSQL("INSERT INTO active_profile (id, profile) VALUES (0, 'NORMAL')")
+
+            db.execSQL(
+                """
+                CREATE TRIGGER song_like_blacklist_mirror
+                AFTER UPDATE OF liked, blacklisted, likedDate, likedReason, blacklistedDate, blacklistReason ON song
+                WHEN NEW.liked != OLD.liked OR NEW.blacklisted != OLD.blacklisted
+                     OR IFNULL(NEW.likedDate, 0) != IFNULL(OLD.likedDate, 0)
+                     OR IFNULL(NEW.blacklistedDate, 0) != IFNULL(OLD.blacklistedDate, 0)
+                BEGIN
+                    INSERT INTO song_profile_state
+                        (songId, profile, liked, likedDate, likedReason, blacklisted, blacklistedDate, blacklistReason)
+                    VALUES (
+                        NEW.id, (SELECT profile FROM active_profile WHERE id = 0),
+                        NEW.liked, NEW.likedDate, NEW.likedReason, NEW.blacklisted, NEW.blacklistedDate, NEW.blacklistReason
+                    )
+                    ON CONFLICT(songId, profile) DO UPDATE SET
+                        liked = excluded.liked,
+                        likedDate = excluded.likedDate,
+                        likedReason = excluded.likedReason,
+                        blacklisted = excluded.blacklisted,
+                        blacklistedDate = excluded.blacklistedDate,
+                        blacklistReason = excluded.blacklistReason;
+                END
+                """.trimIndent(),
+            )
+        }
+    }
+
+/**
+ * Extends Mrs Mode's per-profile scoping (MIGRATION_43_44) to cover downloaded
+ * songs: `song.isDownloaded`/`dateDownload` become "the active profile's view"
+ * too, same as liked/blacklisted — the underlying cached audio file is never
+ * duplicated, only which profile sees a song as downloaded. Adds the two
+ * columns to song_profile_state, seeds them from today's globally-downloaded
+ * songs under 'NORMAL' (existing downloads predate per-profile tracking, so
+ * there's no real history to attribute them to), and replaces the
+ * song_like_blacklist_mirror trigger with one that also watches those columns.
+ */
+val MIGRATION_44_45 =
+    object : Migration(44, 45) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE song_profile_state ADD COLUMN isDownloaded INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE song_profile_state ADD COLUMN dateDownload INTEGER")
+
+            db.execSQL(
+                """
+                INSERT INTO song_profile_state (songId, profile, isDownloaded, dateDownload)
+                SELECT id, 'NORMAL', isDownloaded, dateDownload FROM song WHERE isDownloaded = 1
+                ON CONFLICT(songId, profile) DO UPDATE SET
+                    isDownloaded = excluded.isDownloaded,
+                    dateDownload = excluded.dateDownload
+                """.trimIndent(),
+            )
+
+            db.execSQL("DROP TRIGGER IF EXISTS song_like_blacklist_mirror")
+            db.execSQL(
+                """
+                CREATE TRIGGER song_state_mirror
+                AFTER UPDATE OF liked, blacklisted, likedDate, likedReason, blacklistedDate, blacklistReason, isDownloaded, dateDownload ON song
+                WHEN NEW.liked != OLD.liked OR NEW.blacklisted != OLD.blacklisted
+                     OR IFNULL(NEW.likedDate, 0) != IFNULL(OLD.likedDate, 0)
+                     OR IFNULL(NEW.blacklistedDate, 0) != IFNULL(OLD.blacklistedDate, 0)
+                     OR NEW.isDownloaded != OLD.isDownloaded
+                     OR IFNULL(NEW.dateDownload, 0) != IFNULL(OLD.dateDownload, 0)
+                BEGIN
+                    INSERT INTO song_profile_state
+                        (songId, profile, liked, likedDate, likedReason, blacklisted, blacklistedDate, blacklistReason, isDownloaded, dateDownload)
+                    VALUES (
+                        NEW.id, (SELECT profile FROM active_profile WHERE id = 0),
+                        NEW.liked, NEW.likedDate, NEW.likedReason, NEW.blacklisted, NEW.blacklistedDate, NEW.blacklistReason,
+                        NEW.isDownloaded, NEW.dateDownload
+                    )
+                    ON CONFLICT(songId, profile) DO UPDATE SET
+                        liked = excluded.liked,
+                        likedDate = excluded.likedDate,
+                        likedReason = excluded.likedReason,
+                        blacklisted = excluded.blacklisted,
+                        blacklistedDate = excluded.blacklistedDate,
+                        blacklistReason = excluded.blacklistReason,
+                        isDownloaded = excluded.isDownloaded,
+                        dateDownload = excluded.dateDownload;
+                END
+                """.trimIndent(),
+            )
         }
     }
 

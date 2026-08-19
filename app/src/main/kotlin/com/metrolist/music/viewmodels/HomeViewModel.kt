@@ -24,10 +24,12 @@ import com.metrolist.innertube.models.filterYoutubeShorts
 import com.metrolist.innertube.pages.ExplorePage
 import com.metrolist.innertube.pages.HomePage
 import com.metrolist.innertube.utils.completed
+import com.metrolist.music.constants.ActiveProfileKey
 import com.metrolist.music.constants.HideExplicitKey
 import com.metrolist.music.constants.HideVideoSongsKey
 import com.metrolist.music.constants.HideYoutubeShortsKey
 import com.metrolist.music.constants.InnerTubeCookieKey
+import com.metrolist.music.constants.MrsModeProfile
 import com.metrolist.music.constants.QuickPicks
 import com.metrolist.music.constants.QuickPicksKey
 import com.metrolist.music.constants.ShowWrappedCardKey
@@ -55,6 +57,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -339,10 +342,11 @@ class HomeViewModel @Inject constructor(
 
     private suspend fun getQuickPicks() {
         val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
+        val activeProfile = context.dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
         when (quickPicksEnum.first()) {
             QuickPicks.QUICK_PICKS -> {
-                val relatedSongs = database.quickPicks().first().filterVideoSongs(hideVideoSongs)
-                val forgotten = database.forgottenFavorites().first().filterVideoSongs(hideVideoSongs).take(8)
+                val relatedSongs = database.quickPicks(profile = activeProfile).first().filterVideoSongs(hideVideoSongs)
+                val forgotten = database.forgottenFavorites(profile = activeProfile).first().filterVideoSongs(hideVideoSongs).take(8)
 
                 // Get similar songs from YouTube based on recent listening
                 val recentSong = database.events().first().firstOrNull()?.song
@@ -462,6 +466,7 @@ class HomeViewModel @Inject constructor(
         val hideVideoSongs = context.dataStore.get(HideVideoSongsKey, false)
         val hideYoutubeShorts = context.dataStore.get(HideYoutubeShortsKey, false)
         val fromTimeStamp = LocalDateTime.now().minusWeeks(2)
+        val activeProfile = context.dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
 
         // Phase 1: Load essential sections in parallel — local DB (fast) + YouTube home page.
         // isLoading is set to false as soon as all Phase 1 tasks complete so the UI appears quickly.
@@ -469,7 +474,7 @@ class HomeViewModel @Inject constructor(
             launch(Dispatchers.IO) { getQuickPicks() }
 
             launch(Dispatchers.IO) {
-                forgottenFavorites.value = database.forgottenFavorites().first()
+                forgottenFavorites.value = database.forgottenFavorites(profile = activeProfile).first()
                     .filterVideoSongs(hideVideoSongs).shuffled().take(20)
             }
 
@@ -790,6 +795,20 @@ class HomeViewModel @Inject constructor(
                     if (YouTube.cookie != null && accountPlaylists.value != null) {
                         loadAccountPlaylists()
                     }
+                }
+        }
+
+        // Mrs Mode toggled: the cookie-change collector above only refreshes
+        // account name/avatar, so reload the whole Home feed explicitly (local
+        // sections re-scope to the new profile, server sections reflect the
+        // newly-active account).
+        viewModelScope.launch(Dispatchers.IO) {
+            context.dataStore.data
+                .map { it[ActiveProfileKey].toEnum(MrsModeProfile.NORMAL) }
+                .distinctUntilChanged()
+                .drop(1)
+                .collect {
+                    load()
                 }
         }
     }
