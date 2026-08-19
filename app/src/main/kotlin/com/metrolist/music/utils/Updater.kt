@@ -39,7 +39,7 @@ object Updater {
     private var cachedAllReleases: List<ReleaseInfo> = emptyList()
     
     private const val CHECK_INTERVAL_MILLIS = 2 * 60 * 60 * 1000L // 2 hours
-    private const val GITHUB_API_BASE = "https://api.github.com/repos/MetrolistGroup/Metrolist"
+    private const val GITHUB_API_BASE = "https://api.github.com/repos/activechay-lab/Metrolist"
     private const val KMP_RELEASES_URL = "https://api.github.com/repos/MetrolistGroup/Metrolist-KMP/releases?per_page=30"
     const val KMP_APK_NAME = "Metrolist.apk"
 
@@ -96,10 +96,12 @@ object Updater {
             val downloadUrl = asset.getString("browser_download_url")
             val size = asset.getLong("size")
             
-            // Parse architecture and variant from filename
+            // Parse architecture and variant from filename.
+            // "Metrolist.apk"/"Metrolist-with-Google-Cast.apk" are kept for the KMP release
+            // channel (KMP_RELEASES_URL), which is upstream's repo and still uses that naming.
             val (arch, variant) = when {
-                name == "Metrolist.apk" -> "universal" to "foss"
-                name == "Metrolist-with-Google-Cast.apk" -> "universal" to "gms"
+                name == "TuneTube.apk" || name == "Metrolist.apk" -> "universal" to "foss"
+                name == "TuneTube-with-Google-Cast.apk" || name == "Metrolist-with-Google-Cast.apk" -> "universal" to "gms"
                 name.startsWith("app-") && name.endsWith("-release.apk") -> {
                     val arch = name.removePrefix("app-").removeSuffix("-release.apk")
                     arch to "foss"
