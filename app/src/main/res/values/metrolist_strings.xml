@@ -986,6 +986,8 @@
 
     <!-- Credits / About Screen -->
     <string name="credits_lead_developer">Lead developer</string>
+    <string name="credits_fork_maintainer">Fork maintainer</string>
+    <string name="credits_original_creator">Originally created by %s</string>
     <string name="credits_collaborator">Collaborator</string>
     <string name="credits_collaborators_section">Collaborators</string>
     <string name="credits_license_name">GNU General Public License v3.0</string>
