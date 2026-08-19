@@ -338,6 +338,7 @@
     <string name="mrs_mode_remove_account">Remove Mrs account</string>
     <string name="mrs_mode_remove_account_confirm">Remove the Mrs Mode account? This switches back to Normal Mode and forgets the saved session — you\'ll need to log in again to use Mrs Mode.</string>
     <string name="mrs_mode_not_configured">Log in a Mrs account first (Settings → Account)</string>
+    <string name="mrs_mode_toggle_failed">Couldn\'t switch profile — try again</string>
     <string name="mrs_mode_signed_in_as">Signed in as %1$s</string>
     <string name="mrs_mode_not_signed_in">Not signed in</string>
     <string name="mrs_mode_now_playing_hers">🎀 Now playing her music</string>
@@ -999,6 +1000,12 @@
     <string name="like_what_i_do">Like what I do?</string>
     <string name="buy_mo_a_coffee">Buy me a coffee!</string>
     <string name="community_and_info">Community &amp; Info</string>
+    <string name="debug_section">Debug</string>
+    <string name="app_logs">App logs</string>
+    <string name="app_logs_desc">Copy or share recent logs for troubleshooting</string>
+    <string name="app_logs_empty">No logs recorded yet</string>
+    <string name="app_logs_copied">Logs copied to clipboard</string>
+    <string name="app_logs_share_title">Share app logs</string>
     <string name="metrolist">TUNETUBE</string>
     <string name="wanna_play_favorite_song">Want to play their favorite song?</string>
     <string name="yeah">Yeah!</string>

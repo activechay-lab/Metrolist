@@ -80,6 +80,22 @@ class MrsModeManager @Inject constructor(
             return null
         }
 
+        // Swap the local liked/blacklisted/downloaded view FIRST (see
+        // DatabaseDao.swapActiveProfile), and require it to actually finish
+        // before anything else changes. withTransaction (unlike the old
+        // fire-and-forget database.query{}) awaits the write and propagates
+        // any failure here, so if it throws, nothing below has touched
+        // DataStore yet — ActiveProfileKey and the DB's active_profile table
+        // are left agreeing with each other instead of drifting out of sync,
+        // which previously left the app stuck showing no library items until
+        // its DataStore/DB state was manually fixed.
+        try {
+            database.withTransaction { swapActiveProfile(target.name) }
+        } catch (e: Exception) {
+            Timber.e(e, "MrsModeManager: DB profile swap to $target failed, aborting toggle")
+            return null
+        }
+
         val saved = context.safeDataStoreEdit { settings ->
             // Snapshot the OUTGOING profile's current live values back into its
             // own vault first — defensive, covers a session silently refreshed
@@ -121,7 +137,12 @@ class MrsModeManager @Inject constructor(
             // there's never a window where they disagree.
             settings[ActiveProfileKey] = target.name
         }
-        if (!saved) return null
+        if (!saved) {
+            // DataStore write failed — revert the DB side so it doesn't end up
+            // pointed at a profile DataStore never agreed to.
+            runCatching { database.withTransaction { swapActiveProfile(current.name) } }
+            return null
+        }
 
         // Apply the swap to the live YouTube client SYNCHRONOUSLY, rather than
         // waiting for App.kt's reactive DataStore collectors to pick up the
@@ -140,13 +161,14 @@ class MrsModeManager @Inject constructor(
                 ?: it.substringAfter("||")
         }
 
-        // Swap the local liked/blacklisted view (see DatabaseDao.swapActiveProfile).
-        database.query { swapActiveProfile(target.name) }
-
         // Force an immediate re-sync of account-tied library data (playlists,
         // liked songs, etc.) under the new session — bypasses the normal
         // cooldown on purpose, since the account just changed underneath it.
-        syncUtils.performFullSync()
+        // The profile switch itself is already complete and committed by this
+        // point, so a sync failure (network blip, etc.) is only logged, not
+        // treated as a toggle failure.
+        runCatching { syncUtils.performFullSync() }
+            .onFailure { Timber.w(it, "MrsModeManager: post-toggle full sync failed") }
 
         return target
     }

@@ -642,6 +642,36 @@ class MusicService :
         // This consolidates ~15 main-thread-blocking DataStore reads into 1.
         startupPrefs = runBlocking(Dispatchers.IO) { dataStore.data.first() }
 
+        // Self-heal a Mrs Mode profile stuck out of sync between DataStore's
+        // ActiveProfileKey and the DB's active_profile row — the failure mode
+        // that used to happen if swapActiveProfile() threw mid-toggle (fixed
+        // in MrsModeManager.toggle(), but installs that already hit it need a
+        // one-time repair). An unrecognized DB value (e.g. still parked on the
+        // internal "__SWAPPING__" sentinel from an interrupted toggle) or a
+        // mismatch with DataStore both leave every profile-scoped library
+        // query returning nothing, which reads as an empty library everywhere
+        // including Android Auto. Re-running swapActiveProfile is safe even
+        // when nothing was actually wrong — it's idempotent.
+        runBlocking(Dispatchers.IO) {
+            val expectedProfile = startupPrefs?.get(ActiveProfileKey).toEnum(MrsModeProfile.NORMAL).name
+            val actualProfile = try {
+                database.activeProfileOrNull()
+            } catch (e: Exception) {
+                Timber.tag(TAG).w(e, "Startup Mrs Mode profile check failed")
+                null
+            }
+            if (actualProfile != expectedProfile) {
+                Timber.tag(TAG).w(
+                    "Startup Mrs Mode profile mismatch: DataStore=$expectedProfile DB=$actualProfile — repairing",
+                )
+                try {
+                    database.withTransaction { swapActiveProfile(expectedProfile) }
+                } catch (e: Exception) {
+                    Timber.tag(TAG).e(e, "Startup Mrs Mode profile repair failed")
+                }
+            }
+        }
+
         // 3. Connect the processor to the service
         // handled in createExoPlayer
 
@@ -2455,7 +2485,13 @@ class MusicService :
     // driving, no searching required.
     fun toggleMrsMode() {
         scope.launch {
-            val newProfile = mrsModeManager.toggle()
+            val newProfile = try {
+                mrsModeManager.toggle()
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "toggleMrsMode: profile switch failed")
+                toastOnMain(getString(R.string.mrs_mode_toggle_failed))
+                return@launch
+            }
             if (newProfile == null) {
                 Handler(Looper.getMainLooper()).post {
                     Toast
