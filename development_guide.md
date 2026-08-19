@@ -1,6 +1,6 @@
-# Metrolist Dev Guide
+# TuneTube Dev Guide
 
-This file outlines the process of setting up a local dev environment for Metrolist.
+This file outlines the process of setting up a local dev environment for TuneTube.
 
 ## Prerequisites
 
@@ -13,7 +13,7 @@ This file outlines the process of setting up a local dev environment for Metroli
 This has been tested on Linux, but should work on other platforms with some adjustments.
 
 ```bash
-git clone https://github.com/MetrolistGroup/Metrolist
+git clone https://github.com/activechay-lab/Metrolist
 cd Metrolist
 git submodule update --init --recursive
 cd app
