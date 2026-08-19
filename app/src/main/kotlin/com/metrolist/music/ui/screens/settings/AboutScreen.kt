@@ -51,6 +51,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import android.content.Intent
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,12 +61,16 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import androidx.graphics.shapes.RoundedPolygon
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
@@ -80,8 +85,10 @@ import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.utils.backToMain
+import com.metrolist.music.utils.FileLogTree
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.io.File
 import java.util.Locale
 
 private data class Contributor(
@@ -152,6 +159,25 @@ private fun handleEasterEggClick(
     }
 }
 
+private fun shareAppLogs(context: android.content.Context) {
+    try {
+        val source = FileLogTree.logFile(context)
+        val shareFile = File(context.cacheDir, "tunetube_logs_share.txt")
+        if (source.exists()) source.copyTo(shareFile, overwrite = true) else shareFile.writeText("")
+
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.FileProvider", shareFile)
+        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_STREAM, uri)
+            putExtra(Intent.EXTRA_SUBJECT, context.getString(R.string.app_logs_share_title))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        context.startActivity(Intent.createChooser(shareIntent, context.getString(R.string.app_logs_share_title)))
+    } catch (_: Exception) {
+        // Best-effort — sharing logs should never itself crash the app.
+    }
+}
+
 @Composable
 private fun ContributorAvatar(
     avatarUrl: String,
@@ -217,11 +243,15 @@ fun AboutScreen(
     navController: NavController,
 ) {
     val uriHandler = LocalUriHandler.current
+    val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
     val playerConnection = LocalPlayerConnection.current
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     val wannaPlayStr = stringResource(R.string.wanna_play_favorite_song)
     val yeahStr = stringResource(R.string.yeah)
+    val logsCopiedStr = stringResource(R.string.app_logs_copied)
+    val logsEmptyStr = stringResource(R.string.app_logs_empty)
     
     val windowInsets = LocalPlayerAwareWindowInsets.current
 
@@ -488,6 +518,46 @@ fun AboutScreen(
                     onClick = { uriHandler.openUri(link.url) }
                 )
             }
+        )
+
+        Spacer(Modifier.height(32.dp))
+
+        // Debug section — grab recent app logs for a bug report without adb.
+        Material3SettingsGroup(
+            title = stringResource(R.string.debug_section),
+            items = listOf(
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.bug_report),
+                    title = { Text(stringResource(R.string.app_logs), fontWeight = FontWeight.SemiBold) },
+                    description = { Text(stringResource(R.string.app_logs_desc)) },
+                    trailingContent = {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.IconButton(
+                                onClick = {
+                                    val text = FileLogTree.readLogText(context)
+                                    if (text.isBlank()) {
+                                        coroutineScope.launch { snackbarHostState.showSnackbar(logsEmptyStr) }
+                                    } else {
+                                        clipboardManager.setText(AnnotatedString(text))
+                                        coroutineScope.launch { snackbarHostState.showSnackbar(logsCopiedStr) }
+                                    }
+                                }
+                            ) {
+                                Icon(painterResource(R.drawable.content_copy), contentDescription = stringResource(R.string.app_logs_copied))
+                            }
+                            androidx.compose.material3.IconButton(
+                                onClick = { shareAppLogs(context) }
+                            ) {
+                                Icon(painterResource(R.drawable.share), contentDescription = stringResource(R.string.app_logs_share_title))
+                            }
+                        }
+                    },
+                    onClick = { shareAppLogs(context) }
+                )
+            )
         )
 
         Spacer(Modifier.height(48.dp))

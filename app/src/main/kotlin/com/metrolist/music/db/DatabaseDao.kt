@@ -1721,6 +1721,10 @@ interface DatabaseDao {
     @Query("UPDATE active_profile SET profile = :profile WHERE id = 0")
     fun setActiveProfile(profile: String)
 
+    @SkipQueryVerification
+    @Query("SELECT profile FROM active_profile WHERE id = 0")
+    fun activeProfileOrNull(): String?
+
     @Query(
         """
         UPDATE song SET

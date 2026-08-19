@@ -32,6 +32,7 @@ import com.metrolist.music.di.ApplicationScope
 import com.metrolist.music.extensions.toEnum
 import com.metrolist.music.extensions.toInetSocketAddress
 import com.metrolist.music.utils.CrashHandler
+import com.metrolist.music.utils.FileLogTree
 import com.metrolist.music.utils.YTPlayerUtils
 import com.metrolist.music.utils.cipher.CipherDeobfuscator
 import com.metrolist.music.utils.dataStore
@@ -88,6 +89,7 @@ class App :
         // Plant logging BEFORE cipher init so the synchronous config-store load
         // (bundled asset + cached overlay) is captured, not just the async remote refresh.
         Timber.plant(Timber.DebugTree())
+        Timber.plant(FileLogTree(this))
 
         // Initialize cipher deobfuscator for WEB_REMIX streaming
         CipherDeobfuscator.initialize(this)
