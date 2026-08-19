@@ -61,7 +61,6 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR
-import androidx.media3.datasource.cache.ContentMetadata
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -94,14 +93,14 @@ import androidx.media3.session.SessionToken
 import com.google.common.collect.ImmutableList
 import com.google.common.util.concurrent.MoreExecutors
 import com.metrolist.innertube.YouTube
+import com.metrolist.innertube.utils.completed
+import com.metrolist.innertube.strategy.ContentHints
 import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.WatchEndpoint
-import com.metrolist.innertubex.extraction.ContentHints
 import com.metrolist.lastfm.LastFM
 import com.metrolist.music.MainActivity
 import com.metrolist.music.R
-import com.metrolist.music.constants.AddToPlaylistPosition
-import com.metrolist.music.constants.AddToPlaylistPositionKey
+import com.metrolist.music.constants.ActiveProfileKey
 import com.metrolist.music.constants.AndroidAutoTargetPlaylistKey
 import com.metrolist.music.constants.AudioNormalizationKey
 import com.metrolist.music.constants.AudioOffload
@@ -119,6 +118,11 @@ import com.metrolist.music.constants.AutoDeleteEpisodeAfterPlaysKey
 import com.metrolist.music.constants.AutoDeleteEpisodePlaysThresholdKey
 import com.metrolist.music.constants.SkipPositionExemptPercentKey
 import com.metrolist.music.constants.AutoSkipNextOnErrorKey
+import com.metrolist.music.constants.StreamSourceAndroidVRKey
+import com.metrolist.music.constants.StreamSourceTVHTML5Key
+import com.metrolist.music.constants.StreamSourceVisionOSKey
+import com.metrolist.music.constants.StreamSourceWebCreatorKey
+import com.metrolist.music.constants.StreamSourceWebRemixKey
 import com.metrolist.music.constants.AutoplayKey
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
@@ -156,6 +160,12 @@ import com.metrolist.music.constants.MediaSessionConstants.CommandToggleRepeatMo
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleShuffle
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleStartRadio
 import com.metrolist.music.constants.MediaSessionConstants.CommandToggleBlacklist
+import com.metrolist.music.constants.LastPlayedSongIdMrsKey
+import com.metrolist.music.constants.LastPlayedSongIdNormalKey
+import com.metrolist.music.constants.MediaSessionConstants.CommandToggleMrsMode
+import com.metrolist.music.constants.MrsModeSeedSource
+import com.metrolist.music.constants.MrsModeSeedSourceKey
+import com.metrolist.music.constants.MrsModeProfile
 import com.metrolist.music.constants.PauseListenHistoryKey
 import com.metrolist.music.constants.PauseOnMute
 import com.metrolist.music.constants.PersistentQueueKey
@@ -216,12 +226,14 @@ import com.metrolist.music.playback.queues.filterVideoSongs
 import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
 import com.metrolist.music.utils.CoilBitmapLoader
+import com.metrolist.music.utils.MrsModeManager
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
 import com.metrolist.music.utils.SyncUtils
 import com.metrolist.music.utils.getArtistSeparator
 import com.metrolist.music.utils.joinToArtistString
-import com.metrolist.music.utils.InnerTubeXPlayer
+import com.metrolist.music.utils.YTPlayerUtils
+import com.metrolist.music.utils.cipher.CipherDeobfuscator
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
 import com.metrolist.music.utils.reportException
@@ -286,7 +298,7 @@ class MusicService :
     lateinit var syncUtils: SyncUtils
 
     @Inject
-    lateinit var downloadUtil: DownloadUtil
+    lateinit var mrsModeManager: MrsModeManager
 
     @Inject
     lateinit var mediaLibrarySessionCallback: MediaLibrarySessionCallback
@@ -321,12 +333,8 @@ class MusicService :
         object : Player.Listener {
             override fun onPlayerError(error: PlaybackException) {
                 Timber.tag(TAG).e(error, "Secondary player error")
-                secondaryPlayer?.let { failedPlayer ->
-                    failedPlayer.removeListener(this)
-                    failedPlayer.stop()
-                    failedPlayer.clearMediaItems()
-                    releaseExoPlayer(failedPlayer)
-                }
+                secondaryPlayer?.stop()
+                secondaryPlayer?.clearMediaItems()
                 secondaryPlayer = null
             }
         }
@@ -432,7 +440,6 @@ class MusicService :
     private var isAudioEffectSessionOpened = false
     private var openedAudioEffectSessionId: Int = C.AUDIO_SESSION_ID_UNSET
     private val playerNormalizationProcessors = HashMap<Player, VolumeNormalizationAudioProcessor>()
-    private val playerEqualizerProcessors = HashMap<Player, CustomEqualizerAudioProcessor>()
 
     private var loudnessSetupJob: Job? = null
     private var loudnessSetupGeneration: Long = 0L
@@ -443,7 +450,6 @@ class MusicService :
     @Volatile
     private var loudnessLevelCached: LoudnessLevel = LoudnessLevel.BALANCED
 
-    private var cachedNormalizationMediaId: String? = null
     private var cachedNormalizationGainMb: Int? = null
     private var cachedNormalizationEnabled: Boolean = false
 
@@ -707,6 +713,7 @@ class MusicService :
             toggleLibrary = ::toggleLibrary
             addToTargetPlaylist = ::addToTargetPlaylist
             toggleBlacklist = ::toggleBlacklist
+            toggleMrsMode = ::toggleMrsMode
         }
         mediaSession =
             MediaLibrarySession
@@ -932,7 +939,7 @@ class MusicService :
                 .distinctUntilChanged(),
         ) { format, normalizeAudio, loudnessLevel ->
             Triple(format, normalizeAudio, loudnessLevel)
-        }.collectLatest(scope) { (_, normalizeAudio, loudnessLevel) ->
+        }.collectLatest(scope) { (format, normalizeAudio, loudnessLevel) ->
             normalizationEnabledCached = normalizeAudio
             loudnessLevelCached = loudnessLevel
             setupAudioNormalization()
@@ -975,7 +982,9 @@ class MusicService :
 
                 player.removeListener(this)
                 sleepTimer?.let { player.removeListener(it) }
-                releaseExoPlayer(player)
+                playerNormalizationProcessors.remove(player)
+                playerSilenceProcessors.remove(player)
+                player.release()
 
                 val newPlayer = createExoPlayer()
                 newPlayer.addListener(this@MusicService)
@@ -1182,6 +1191,24 @@ class MusicService :
         scope.launch {
             dataStore.data.map { it[AutoLoadMoreKey] ?: true }.distinctUntilChanged().collect { cachedAutoLoadMore = it }
         }
+        // Keep YTPlayerUtils in sync with the stream source toggles (Settings → Stream sources).
+        // Map to the derived set + distinctUntilChanged so an unrelated preference write doesn't
+        // rebuild the set and rewrite the @Volatile field on every DataStore emission.
+        scope.launch {
+            dataStore.data
+                .map { prefs ->
+                    buildSet {
+                        if (prefs[StreamSourceWebRemixKey] == false) add("WEB_REMIX")
+                        if (prefs[StreamSourceTVHTML5Key] == false) add("TVHTML5")
+                        if (prefs[StreamSourceAndroidVRKey] == false) add("ANDROID_VR")
+                        if (prefs[StreamSourceVisionOSKey] == false) add("VISIONOS")
+                        if (prefs[StreamSourceWebCreatorKey] == false) add("WEB_CREATOR")
+                    }
+                }
+                .distinctUntilChanged()
+                .collect { YTPlayerUtils.disabledStreamClients = it }
+        }
+
         if (startupPrefs!![PersistentQueueKey] ?: true) {
             val queueFile = filesDir.resolve(PERSISTENT_QUEUE_FILE)
             if (queueFile.exists()) {
@@ -1288,8 +1315,12 @@ class MusicService :
     }
 
     private fun createExoPlayer(prefs: Preferences? = null): ExoPlayer {
-        val normalizationProcessor = VolumeNormalizationAudioProcessor()
+        val normalizationProcessor = VolumeNormalizationAudioProcessor().also {
+            it.enabled = cachedNormalizationEnabled
+            cachedNormalizationGainMb?.let { gain -> it.setTargetGain(gain) }
+        }
         val eqProcessor = CustomEqualizerAudioProcessor()
+        equalizerService.addAudioProcessor(eqProcessor)
 
         val silenceProcessor = SilenceDetectorAudioProcessor { handleLongSilenceDetected() }
 
@@ -1308,13 +1339,10 @@ class MusicService :
             }
         }
 
-        var createdPlayer: ExoPlayer? = null
         val player =
             ExoPlayer
                 .Builder(this)
-                .setMediaSourceFactory(
-                    createMediaSourceFactory(normalizationProcessor) { createdPlayer },
-                )
+                .setMediaSourceFactory(createMediaSourceFactory())
                 .setRenderersFactory(createRenderersFactory(normalizationProcessor, eqProcessor, silenceProcessor, useAudioTrackPlaybackParams))
                 .setLoadControl(
                     // Start playback once ~750ms is buffered (media3's default is 1000ms) so first
@@ -1338,12 +1366,9 @@ class MusicService :
                 .setSeekForwardIncrementMs(5000)
                 .setDeviceVolumeControlEnabled(true)
                 .build()
-        createdPlayer = player
 
         playerNormalizationProcessors[player] = normalizationProcessor
         playerSilenceProcessors[player] = silenceProcessor
-        playerEqualizerProcessors[player] = eqProcessor
-        equalizerService.addAudioProcessor(eqProcessor)
 
         if (prefs != null) {
             val offload = prefs[AudioOffload] ?: false
@@ -1475,6 +1500,8 @@ class MusicService :
         runCatching { filesDir.resolve(PERSISTENT_PLAYER_STATE_FILE).delete() }
     }
 
+    fun hasAudioFocusForPlayback(): Boolean = hasAudioFocus
+
     private fun waitOnNetworkError() {
         if (waitingForNetworkConnection.value) return
 
@@ -1576,9 +1603,20 @@ class MusicService :
     private fun updateNotification(
         isLiked: Boolean? = currentSong.value?.song?.let { if (it.isEpisode) it.inLibrary != null else it.liked },
         isBlacklisted: Boolean? = currentSong.value?.song?.blacklisted,
+        isMrsMode: Boolean = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name) == MrsModeProfile.MRS.name,
     ) {
         mediaSession?.setCustomLayout(
             listOf(
+                // First in the list on purpose: this is the button that needs
+                // to be reachable in one tap on Android Auto without digging
+                // into an overflow menu — everything below it is lower
+                // priority for one-hand/while-driving use.
+                CommandButton
+                    .Builder()
+                    .setDisplayName(getString(if (isMrsMode) R.string.mrs_mode_on else R.string.mrs_mode_off))
+                    .setIconResId(if (isMrsMode) R.drawable.mrs_mode_on else R.drawable.mrs_mode_outline)
+                    .setSessionCommand(CommandToggleMrsMode)
+                    .build(),
                 CommandButton
                     .Builder()
                     .setDisplayName(
@@ -1663,7 +1701,7 @@ class MusicService :
      */
     private suspend fun recoverSong(
         mediaId: String,
-        playbackData: InnerTubeXPlayer.PlaybackData? = null,
+        playbackData: YTPlayerUtils.PlaybackData? = null,
     ) {
         val song = database.song(mediaId).first()
         val mediaMetadata =
@@ -1679,15 +1717,17 @@ class MusicService :
             song?.song?.duration?.takeIf { it != -1 }
                 ?: mediaMetadata?.duration?.takeIf { it != -1 }
                 ?: (
-                    playbackData?.videoDetails
+                    playbackData?.videoDetails ?: YTPlayerUtils
+                        .playerResponseForMetadata(mediaId)
+                        .getOrNull()
+                        ?.videoDetails
                 )?.lengthSeconds?.toInt()
                 ?: -1
 
         database.query {
-            if (mediaMetadata != null && (song == null || song.orderedArtists.isEmpty())) {
+            if (song == null && mediaMetadata != null) {
                 insert(mediaMetadata.copy(duration = duration))
-            }
-            if (song != null) {
+            } else if (song != null) {
                 var updatedSong = song.song
                 if (song.song.duration == -1) {
                     updatedSong = updatedSong.copy(duration = duration)
@@ -1734,7 +1774,7 @@ class MusicService :
      */
     private fun recoverSongDeduped(
         mediaId: String,
-        playbackData: InnerTubeXPlayer.PlaybackData? = null,
+        playbackData: YTPlayerUtils.PlaybackData? = null,
     ) {
         if (!recoveringSongs.add(mediaId)) return
         scope.launch(Dispatchers.IO) {
@@ -1755,21 +1795,14 @@ class MusicService :
      * prefetch can finish downloading a short file in seconds, long before the
      * user has actually listened to it (or even if they skipped away early).
      *
-     * No-op if already marked downloaded, or if the file's content length is unknown.
+     * No-op if already marked downloaded, or if we don't yet know the file's
+     * contentLength (FormatEntity not fetched yet).
      */
     private suspend fun markCachedIfFullyDownloaded(mediaId: String) {
         val song = database.song(mediaId).first() ?: return
         if (song.song.dateDownload != null || song.song.isDownloaded) return
-        val contentLength =
-            song.format?.contentLength
-                ?: ContentMetadata
-                    .getContentLength(playerCache.getContentMetadata(mediaId))
-                    .takeIf { it > 0L }
-                ?: return
-        if (!playerCache.isCached(mediaId, 0, contentLength)) {
-            delay(1_000)
-            if (!playerCache.isCached(mediaId, 0, contentLength)) return
-        }
+        val contentLength = song.format?.contentLength ?: return
+        if (!playerCache.isCached(mediaId, 0, contentLength)) return
         database.query {
             update(song.song.copy(dateDownload = java.time.LocalDateTime.now()))
         }
@@ -1794,11 +1827,12 @@ class MusicService :
 
         val likeThreshold = dataStore.get(AutoLikeCompletionThresholdKey, AUTO_LIKE_COMPLETION_THRESHOLD)
         val deleteThreshold = dataStore.get(AutoDeleteEpisodePlaysThresholdKey, AUTO_DELETE_EPISODE_PLAYS_THRESHOLD)
+        val activeProfile = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
 
         database.query {
             val completions =
                 try {
-                    recordSongCompletion(songId)
+                    recordSongCompletion(songId, activeProfile)
                 } catch (_: SQLException) {
                     return@query
                 }
@@ -1846,10 +1880,11 @@ class MusicService :
     private fun recordSkipAndMaybeBlacklist(songId: String) {
         if (!dataStore.get(AutoBlacklistOnSkipKey, true)) return
         val threshold = dataStore.get(AutoBlacklistSkipThresholdKey, AUTO_BLACKLIST_SKIP_THRESHOLD)
+        val activeProfile = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
         database.query {
             val skips =
                 try {
-                    recordSongSkip(songId)
+                    recordSongSkip(songId, activeProfile)
                 } catch (_: SQLException) {
                     return@query
                 }
@@ -2066,6 +2101,16 @@ class MusicService :
                 } catch (_: Exception) {
                 }
             }
+        }
+    }
+
+    fun getAutomixAlbum(albumId: String) {
+        scope.launch(SilentHandler) {
+            YouTube
+                .album(albumId)
+                .onSuccess {
+                    getAutomix(it.album.playlistId)
+                }
         }
     }
 
@@ -2311,7 +2356,7 @@ class MusicService :
                     return@let
                 }
 
-                val song = songEntity.toggleLike(syncToYouTube = false)
+                val song = songEntity.toggleLike()
 
                 updateNotification(isLiked = song.liked)
                 updateWidgetUI(player.isPlaying, isLiked = song.liked)
@@ -2321,7 +2366,18 @@ class MusicService :
                     syncUtils.likeSong(song)
 
                     if (dataStore.get(AutoDownloadOnLikeKey, false) && song.liked) {
-                        downloadUtil.download(song.id)
+                        val downloadRequest =
+                            androidx.media3.exoplayer.offline.DownloadRequest
+                                .Builder(song.id, song.id.toUri())
+                                .setCustomCacheKey(song.id)
+                                .setData(song.title.toByteArray())
+                                .build()
+                        androidx.media3.exoplayer.offline.DownloadService.sendAddDownload(
+                            this@MusicService,
+                            ExoDownloadService::class.java,
+                            downloadRequest,
+                            false,
+                        )
                     }
                 }
                 currentMediaMetadata.value = player.currentMetadata
@@ -2355,6 +2411,106 @@ class MusicService :
         }
     }
 
+    private fun toastOnMain(message: String) {
+        Handler(Looper.getMainLooper()).post {
+            Toast.makeText(this@MusicService, message, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun profileSwitchedMessage(profile: MrsModeProfile, songTitle: String?): String {
+        val base = getString(if (profile == MrsModeProfile.MRS) R.string.mrs_mode_now_playing_hers else R.string.mrs_mode_now_playing_yours)
+        return if (songTitle != null) "$base — $songTitle" else base
+    }
+
+    // A random pick from the profile's REAL YouTube Music "Liked Music"
+    // library, fetched fresh from the server now that its account is active —
+    // reflects the actual account regardless of whether it's ever used this
+    // app before. Falls back to a locally-liked song under this profile
+    // (song_profile_state, immune to any swap timing) if the server call
+    // fails (offline, rate-limited) or the account has no liked songs.
+    private suspend fun mrsModeLikedSeed(profile: MrsModeProfile): Song? {
+        val serverLiked = runCatching {
+            YouTube.playlist("LM").completed().getOrNull()?.songs?.randomOrNull()?.let { database.song(it.id).first() }
+        }.getOrNull()
+        return serverLiked ?: database.randomLikedSongForProfile(profile.name)
+    }
+
+    // The profile's most recently played song: prefers the immediate
+    // last-played pointer (set the instant a track starts, see
+    // onMediaItemTransition), falling back to the slower listening-history
+    // table (only populated once a play clears HistoryDuration's threshold).
+    private suspend fun mrsModeHistorySeed(profile: MrsModeProfile): Song? {
+        val pointerKey = if (profile == MrsModeProfile.MRS) LastPlayedSongIdMrsKey else LastPlayedSongIdNormalKey
+        val seedSongId = dataStore.get(pointerKey, "").ifBlank { null }
+            ?: database.lastEventForProfile(profile.name).first()?.song?.id
+        return seedSongId?.let { database.song(it).first() }
+    }
+
+    // Switches the active Mrs Mode profile. By default this never touches
+    // player/mediaSession — the currently playing song keeps playing, and only
+    // the next radio/autoplay/related-song fetch (and Home/library data)
+    // reflects the new profile. If MrsModeSeedSourceKey isn't OFF, it instead
+    // immediately jumps playback to a song picked per that setting and starts
+    // radio from there — e.g. for one-tap "switch to her music" while
+    // driving, no searching required.
+    fun toggleMrsMode() {
+        scope.launch {
+            val newProfile = mrsModeManager.toggle()
+            if (newProfile == null) {
+                Handler(Looper.getMainLooper()).post {
+                    Toast
+                        .makeText(
+                            this@MusicService,
+                            getString(R.string.mrs_mode_not_configured),
+                            Toast.LENGTH_SHORT,
+                        ).show()
+                }
+                return@launch
+            }
+            updateNotification()
+
+            val seedSource = dataStore.get(MrsModeSeedSourceKey, MrsModeSeedSource.LIKED.name).toEnum(MrsModeSeedSource.LIKED)
+            if (seedSource == MrsModeSeedSource.OFF) {
+                toastOnMain(profileSwitchedMessage(newProfile, songTitle = null))
+                return@launch
+            }
+
+            try {
+                val seedSong = withContext(Dispatchers.IO) {
+                    when (seedSource) {
+                        MrsModeSeedSource.LIKED -> mrsModeLikedSeed(newProfile) ?: mrsModeHistorySeed(newProfile)
+                        MrsModeSeedSource.HISTORY -> mrsModeHistorySeed(newProfile) ?: mrsModeLikedSeed(newProfile)
+                        MrsModeSeedSource.RANDOM -> listOfNotNull(mrsModeLikedSeed(newProfile), mrsModeHistorySeed(newProfile)).randomOrNull()
+                        MrsModeSeedSource.OFF -> null
+                    }
+                }
+                Timber.tag(TAG).d("toggleMrsMode: $seedSource seed for $newProfile = ${seedSong?.id}")
+                if (seedSong == null) {
+                    toastOnMain(profileSwitchedMessage(newProfile, songTitle = null))
+                    return@launch
+                }
+
+                val seedMediaMetadata = seedSong.toMediaMetadata()
+                val queue = YouTubeQueue.radio(seedMediaMetadata)
+                // playQueue()'s own internal coroutine swallows exceptions
+                // silently (SilentHandler) — build the queue's initial status
+                // here FIRST, inside this function's own try/catch, so a
+                // failure (bad endpoint, network error, etc.) is actually
+                // caught and surfaced instead of vanishing.
+                val initialStatus = withContext(Dispatchers.IO) { queue.getInitialStatus() }
+                if (initialStatus.items.isEmpty()) {
+                    toastOnMain(profileSwitchedMessage(newProfile, songTitle = null))
+                    return@launch
+                }
+                toastOnMain(profileSwitchedMessage(newProfile, songTitle = seedMediaMetadata.title))
+                playQueue(queue)
+            } catch (e: Exception) {
+                Timber.tag(TAG).e(e, "toggleMrsMode: jump-to-history failed")
+                toastOnMain(profileSwitchedMessage(newProfile, songTitle = null))
+            }
+        }
+    }
+
     fun addToTargetPlaylist() {
         scope.launch {
             val currentSong = currentSong.first() ?: return@launch
@@ -2374,15 +2530,7 @@ class MusicService :
 
             val targetPlaylist = database.playlist(targetPlaylistId).first()
             if (targetPlaylist != null) {
-                val addToPlaylistPosition =
-                    dataStore
-                        .get(AddToPlaylistPositionKey, AddToPlaylistPosition.BEGINNING.name)
-                        .toEnum(AddToPlaylistPosition.BEGINNING)
-                database.addSongsToPlaylist(
-                    targetPlaylist,
-                    listOf(currentSong.id to null),
-                    prepend = addToPlaylistPosition.prepend,
-                )
+                database.addSongsToPlaylist(targetPlaylist, listOf(currentSong.id to null), prepend = true)
             }
         }
     }
@@ -2427,89 +2575,20 @@ class MusicService :
 
     private fun applyCachedAudioNormalizationNow() {
         if (isCrossfading) return
-        val processor = playerNormalizationProcessors[player] ?: return
         try {
             val gain = cachedNormalizationGainMb
-            if (cachedNormalizationMediaId == player.currentMediaItem?.mediaId &&
-                cachedNormalizationEnabled &&
-                gain != null
-            ) {
-                processor.setTargetGain(gain)
-                processor.enabled = true
+            if (cachedNormalizationEnabled && gain != null) {
+                playerNormalizationProcessors.values.forEach {
+                    it.setTargetGain(gain)
+                    it.enabled = true
+                }
             } else {
-                processor.enabled = false
+                playerNormalizationProcessors.values.forEach { it.enabled = false }
             }
         } catch (e: Exception) {
             reportException(e)
-            processor.enabled = false
+            playerNormalizationProcessors.values.forEach { it.enabled = false }
         }
-    }
-
-    private fun applyAudioNormalization(
-        processor: VolumeNormalizationAudioProcessor,
-        mediaId: String,
-        loudnessDb: Double?,
-        perceptualLoudnessDb: Double?,
-        updateCache: Boolean,
-    ) {
-        val gain =
-            if (normalizationEnabledCached) {
-                normalizationGainMb(loudnessDb, perceptualLoudnessDb, loudnessLevelCached.targetLufs)
-            } else {
-                null
-            }
-
-        if (gain != null) {
-            processor.setTargetGain(gain)
-            processor.enabled = true
-        } else {
-            processor.setTargetGain(0)
-            processor.enabled = false
-        }
-
-        if (updateCache) {
-            cachedNormalizationMediaId = mediaId
-            cachedNormalizationGainMb = gain
-            cachedNormalizationEnabled = gain != null
-        }
-    }
-
-    private fun applyAudioNormalizationBeforePlayback(
-        processor: VolumeNormalizationAudioProcessor,
-        playerProvider: () -> ExoPlayer?,
-        mediaId: String,
-        loudnessDb: Double?,
-        perceptualLoudnessDb: Double?,
-        preserveCachedIfMissing: Boolean = false,
-    ) = runBlocking(Dispatchers.Main.immediate) {
-        val targetPlayer = playerProvider() ?: return@runBlocking
-        if (playerNormalizationProcessors[targetPlayer] !== processor ||
-            targetPlayer.currentMediaItem?.mediaId != mediaId
-        ) {
-            return@runBlocking
-        }
-
-        val isCurrentPlayer = ::player.isInitialized && targetPlayer === player
-        if (preserveCachedIfMissing &&
-            loudnessDb == null &&
-            perceptualLoudnessDb == null &&
-            isCurrentPlayer &&
-            cachedNormalizationMediaId == mediaId
-        ) {
-            return@runBlocking
-        }
-        if (isCurrentPlayer) {
-            loudnessSetupGeneration++
-            loudnessSetupJob?.cancel()
-            loudnessSetupJob = null
-        }
-        applyAudioNormalization(
-            processor = processor,
-            mediaId = mediaId,
-            loudnessDb = loudnessDb,
-            perceptualLoudnessDb = perceptualLoudnessDb,
-            updateCache = isCurrentPlayer,
-        )
     }
 
     private fun setupAudioNormalization() {
@@ -2529,27 +2608,55 @@ class MusicService :
                         database.format(currentMediaId).first()
                     }
 
+                    val targetLufs = loudnessLevelCached.targetLufs
+
                     Timber.tag(TAG).d("Audio normalization enabled: $normalizeAudio")
+                    
+                    val measuredLufs: Double? = format?.perceptualLoudnessDb
+                        ?: format?.loudnessDb?.let { it + LoudnessLevel.AGGRESSIVE.targetLufs }
 
                     withContext(Dispatchers.Main) {
                         if (!isActive || requestGeneration != loudnessSetupGeneration) return@withContext
                         if (player.currentMediaItem?.mediaId != currentMediaId) return@withContext
 
-                        val processor = playerNormalizationProcessors[player] ?: return@withContext
-                        if (format != null || cachedNormalizationMediaId != currentMediaId) {
-                            applyAudioNormalization(
-                                processor = processor,
-                                mediaId = currentMediaId,
-                                loudnessDb = format?.loudnessDb,
-                                perceptualLoudnessDb = format?.perceptualLoudnessDb,
-                                updateCache = true,
-                            )
+                        when {
+                            measuredLufs != null -> {
+                                val loudnessDb = measuredLufs - targetLufs
+                                val targetGain = (-loudnessDb * 100.0).toInt()
+                                val clampedGain = targetGain.coerceIn(MIN_GAIN_MB, MAX_GAIN_MB)
+
+                                cachedNormalizationGainMb = clampedGain
+                                cachedNormalizationEnabled = true
+                                if (isCrossfading) {
+                                    playerNormalizationProcessors[player]?.let {
+                                        it.setTargetGain(clampedGain)
+                                        it.enabled = true
+                                    }
+                                } else {
+                                    playerNormalizationProcessors.values.forEach {
+                                        it.setTargetGain(clampedGain)
+                                        it.enabled = true
+                                    }
+                                }
+                            }
+                            format == null -> {
+                                Timber.tag(TAG).d("Loudness row not ready yet; keeping cached normalization state")
+                                if (isCrossfading) return@withContext
+                            }
+                            else -> {
+                                cachedNormalizationGainMb = 0
+                                cachedNormalizationEnabled = false
+                                if (isCrossfading) return@withContext
+                                playerNormalizationProcessors.values.forEach {
+                                    it.setTargetGain(0)
+                                    it.enabled = false
+                                }
+                            }
                         }
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         if (!isActive || requestGeneration != loudnessSetupGeneration) return@withContext
-                        cachedNormalizationMediaId = null
                         cachedNormalizationGainMb = null
                         cachedNormalizationEnabled = false
                         playerNormalizationProcessors.values.forEach { it.enabled = false }
@@ -2665,11 +2772,11 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
-        // Only natural completion transitions mark the previous track as fully cached,
-        // never a manual skip or seek. Read lastTransitionedMediaId before replacing it.
-        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||
-            reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT
-        ) {
+        // The track that was playing before this transition only gets marked as
+        // "fully cached" if it advanced AUTOmatically (i.e. it actually finished),
+        // never on a manual skip/seek. lastTransitionedMediaId must be read BEFORE
+        // it gets overwritten below.
+        if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
             lastTransitionedMediaId?.let { previousId ->
                 scope.launch(Dispatchers.IO) { markCachedIfFullyDownloaded(previousId) }
             }
@@ -2679,6 +2786,12 @@ class MusicService :
             val allowBlacklistedPlayback =
                 mediaItem.mediaMetadata.extras?.getBoolean("allow_blacklisted_playback") == true
             skipIfBlacklisted(mediaId, allowBlacklistedPlayback)
+
+            val activeProfile = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
+            val lastPlayedKey = if (activeProfile == MrsModeProfile.MRS.name) LastPlayedSongIdMrsKey else LastPlayedSongIdNormalKey
+            scope.launch(Dispatchers.IO) {
+                safeDataStoreEdit { settings -> settings[lastPlayedKey] = mediaId }
+            }
         }
         initialBufferRecoveryJob?.cancel()
         initialBufferRecoveryJob = null
@@ -2774,10 +2887,6 @@ class MusicService :
         updateInitialBufferRecovery(playbackState)
 
         if (playbackState == Player.STATE_ENDED) {
-            player.currentMediaItem?.mediaId?.let { mediaId ->
-                scope.launch(Dispatchers.IO) { markCachedIfFullyDownloaded(mediaId) }
-            }
-
             // Check sleep timer guard - don't autoplay/repeat if sleep timer will pause
             val timer = sleepTimer ?: return
             if (timer.isActive && timer.pauseWhenSongEnd) {
@@ -2786,21 +2895,21 @@ class MusicService :
 
             val repeatMode = player.repeatMode
 
-            if (player.playWhenReady && repeatMode == REPEAT_MODE_ALL && player.mediaItemCount > 0) {
+            if (repeatMode == REPEAT_MODE_ALL && player.mediaItemCount > 0) {
                 player.seekTo(0, 0)
                 player.prepare()
                 player.play()
                 return
             }
 
-            if (player.playWhenReady && repeatMode == REPEAT_MODE_ONE) {
+            if (repeatMode == REPEAT_MODE_ONE) {
                 player.seekTo(player.currentMediaItemIndex, 0)
                 player.prepare()
                 player.play()
                 return
             }
 
-            if (player.playWhenReady && cachedAutoplay && player.hasNextMediaItem()) {
+            if (cachedAutoplay && player.hasNextMediaItem()) {
                 player.seekToNextMediaItem()
                 player.prepare()
                 if (castConnectionHandler?.isCasting?.value != true) {
@@ -3137,6 +3246,7 @@ class MusicService :
         }
         return error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
             error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+            error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE ||
             error.cause is java.net.ConnectException ||
             error.cause is java.net.UnknownHostException ||
             (error.cause as? PlaybackException)?.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
@@ -3168,15 +3278,6 @@ class MusicService :
 
     private fun isRemotePlaybackError(error: PlaybackException): Boolean =
         error.errorCode == PlaybackException.ERROR_CODE_REMOTE_ERROR
-
-    private fun isStreamClientError(error: PlaybackException): Boolean =
-        error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
-            error.errorCode == PlaybackException.ERROR_CODE_IO_INVALID_HTTP_CONTENT_TYPE ||
-            error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ||
-            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
-            error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
-            error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ||
-            error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED
 
     override fun onPlayerError(error: PlaybackException) {
         super.onPlayerError(error)
@@ -3252,12 +3353,13 @@ class MusicService :
                 handleGenericIOError(mediaId)
                 return
             }
+        }
 
-            isStreamClientError(error) -> {
-                Timber.tag(TAG).d("Stream client error detected (${error.errorCode}), trying the next client")
-                handleStreamClientError(mediaId, failedStreamClient)
-                return
-            }
+        // For IO_BAD_HTTP_STATUS, try recovery first
+        if (error.errorCode == PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS) {
+            Timber.tag(TAG).d("IO error detected (${error.errorCode}), attempting recovery")
+            handleGenericIOError(mediaId)
+            return
         }
 
         if (dataStore.get(AutoSkipNextOnErrorKey, false)) {
@@ -3274,15 +3376,22 @@ class MusicService :
      * Clears both player cache and download cache, plus URL cache.
      */
     private fun performAggressiveCacheClear(mediaId: String) {
-        Timber.tag(TAG).d("Performing aggressive cache clear")
+        Timber.tag(TAG).d("Performing aggressive cache clear for $mediaId")
 
         songUrlCache.invalidate(mediaId)
 
         try {
             playerCache.removeResource(mediaId)
-            Timber.tag(TAG).d("Cleared player cache")
+            Timber.tag(TAG).d("Cleared player cache for $mediaId")
         } catch (e: Exception) {
-            Timber.tag(TAG).e("Failed to clear player cache type=${e::class.simpleName ?: "unknown"}")
+            Timber.tag(TAG).e(e, "Failed to clear player cache for $mediaId")
+        }
+
+        try {
+            YTPlayerUtils.forceRefreshForVideo(mediaId)
+            Timber.tag(TAG).d("Cleared decryption caches for $mediaId")
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to clear decryption caches for $mediaId")
         }
     }
 
@@ -3469,7 +3578,7 @@ class MusicService :
         retryReason: String,
     ) {
         if (hasExceededRetryLimit(mediaId)) {
-            Timber.tag(TAG).w("Song reached the retry limit during $retryReason")
+            Timber.tag(TAG).w("Song $mediaId reached the retry limit during $retryReason")
             markSongAsFailed(mediaId)
             handleFinalFailure()
             return
@@ -3478,16 +3587,24 @@ class MusicService :
         incrementRetryCount(mediaId)
 
         songUrlCache.invalidate(mediaId)
-        failedStreamClient?.let { InnerTubeXPlayer.markStreamClientFailed(mediaId, it) }
-        Timber.tag(TAG).d("Cleared cached URL after $retryReason (client=$failedStreamClient)")
+        if (failedStreamClient == "WEB_REMIX") {
+            YTPlayerUtils.markWebRemixFailed(mediaId)
+        }
+        Timber.tag(TAG).d("Cleared cached URL for $mediaId after $retryReason (client=$failedStreamClient)")
+
+        try {
+            YTPlayerUtils.forceRefreshForVideo(mediaId)
+        } catch (e: Exception) {
+            Timber.tag(TAG).e(e, "Failed to clear decryption caches")
+        }
 
         if (refreshCipherConfig) {
             // A rejection can mean the cipher produced a wrong-but-non-throwing signature. If a
-            // rate-limited refresh corrects the table, allow failed clients again on the next resolution.
+            // rate-limited refresh corrects the table, allow WEB_REMIX again on the next resolution.
             scope.launch {
-                if (InnerTubeXPlayer.refreshAfterStreamRejection()) {
-                    Timber.tag(TAG).d("Player config changed after stream rejection: restoring stream clients")
-                    InnerTubeXPlayer.clearStreamClientFailures()
+                if (CipherDeobfuscator.onStreamRejected()) {
+                    Timber.tag(TAG).d("Player config changed after stream rejection — restoring WEB_REMIX")
+                    YTPlayerUtils.clearWebRemixFailures()
                 }
             }
         }
@@ -3550,23 +3667,6 @@ class MusicService :
 
                 Timber.tag(TAG).d("Retrying playback for $mediaId after IO_FILE_NOT_FOUND")
             }
-    }
-
-    private fun handleStreamClientError(
-        mediaId: String?,
-        failedStreamClient: String?,
-    ) {
-        if (mediaId == null) {
-            handleFinalFailure()
-            return
-        }
-
-        refreshStreamAndRetry(
-            mediaId = mediaId,
-            failedStreamClient = failedStreamClient,
-            refreshCipherConfig = false,
-            retryReason = "stream client error",
-        )
     }
 
     /**
@@ -3749,8 +3849,7 @@ class MusicService :
         scope.launch(Dispatchers.IO) {
             val (freshSongId, freshIsPlaying) = withContext(Dispatchers.Main.immediate) {
                 player.currentMetadata?.id to player.isPlaying
-            }
-            if (freshSongId == null) return@launch
+            } ?: return@launch
             val song = database.song(freshSongId).first() ?: return@launch
             updateDiscordRPC(song, freshIsPlaying)
         }
@@ -3930,7 +4029,7 @@ class MusicService :
             if (thumbnail != null) {
                 Timber.tag("DiscordSvc").d("fetchArtistThumbnail: got thumbnail for %s", artist.name)
                 withContext(Dispatchers.IO) {
-                    database.updateArtistThumbnail(artist.id, thumbnail)
+                    database.update(artist.copy(thumbnailUrl = thumbnail))
                 }
                 database.getSongById(song.song.id)
             } else {
@@ -3943,28 +4042,19 @@ class MusicService :
         }
     }
 
-    private fun createDataSourceFactory(
-        normalizationProcessor: VolumeNormalizationAudioProcessor,
-        playerProvider: () -> ExoPlayer?,
-    ): DataSource.Factory {
+    private fun createDataSourceFactory(): DataSource.Factory {
         return ResolvingDataSource.Factory(createCacheDataSource()) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
-            val storedFormat = runBlocking(Dispatchers.IO) { database.format(mediaId).first() }
-            applyAudioNormalizationBeforePlayback(
-                processor = normalizationProcessor,
-                playerProvider = playerProvider,
-                mediaId = mediaId,
-                loudnessDb = storedFormat?.loudnessDb,
-                perceptualLoudnessDb = storedFormat?.perceptualLoudnessDb,
-                preserveCachedIfMissing = true,
-            )
 
             val shouldBypassCache = bypassCacheForQualityChange.contains(mediaId)
 
             if (!shouldBypassCache) {
                 val usePlayerCache = dataStore.get(EnableSongCacheKey, true)
 
-                val contentLength = storedFormat?.contentLength
+                val contentLength =
+                    runBlocking(Dispatchers.IO) {
+                        database.song(mediaId).first()?.format?.contentLength
+                    }
                 val requiredLength =
                     when {
                         dataSpec.length >= 0 -> dataSpec.length
@@ -3985,7 +4075,9 @@ class MusicService :
                 songUrlCache[mediaId]?.let { cachedStream ->
                     recoverSongDeduped(mediaId)
                     currentStreamClient.value = cachedStream.clientName
-                    return@Factory dataSpec.withResolvedStream(cachedStream)
+                    return@Factory dataSpec
+                        .withUri(cachedStream.url.toUri())
+                        .withRequestHeaders(dataSpec.httpRequestHeaders + cachedStream.requestHeaders)
                 }
             } else {
                 Timber.tag(TAG).i("BYPASSING CACHE for $mediaId due to quality change")
@@ -3996,7 +4088,7 @@ class MusicService :
             val playbackData =
                 runBlocking(Dispatchers.IO) {
                     val song = database.songEntity(mediaId)
-                    InnerTubeXPlayer.playerResponseForPlayback(
+                    YTPlayerUtils.playerResponseForPlayback(
                         mediaId,
                         audioQuality = audioQuality,
                         connectivityManager = connectivityManager,
@@ -4052,37 +4144,23 @@ class MusicService :
                 if (loudnessDb == null && perceptualLoudnessDb == null) {
                     Timber.tag(TAG).w("No loudness data available from YouTube for video: $mediaId")
                 }
-                applyAudioNormalizationBeforePlayback(
-                    processor = normalizationProcessor,
-                    playerProvider = playerProvider,
-                    mediaId = mediaId,
-                    loudnessDb = loudnessDb,
-                    perceptualLoudnessDb = perceptualLoudnessDb,
-                )
 
-                format.contentLength?.let { contentLength ->
-                    database.query {
-                        upsert(
-                            FormatEntity(
-                                id = mediaId,
-                                itag = format.itag,
-                                mimeType = format.mimeType.substringBefore(";"),
-                                codecs =
-                                    format.mimeType
-                                        .substringAfter("codecs=", missingDelimiterValue = "")
-                                        .substringBefore(";")
-                                        .trim()
-                                        .removeSurrounding("\""),
-                                bitrate = format.bitrate,
-                                sampleRate = format.audioSampleRate,
-                                contentLength = contentLength,
-                                loudnessDb = loudnessDb,
-                                perceptualLoudnessDb = perceptualLoudnessDb,
-                                playbackUrl = nonNullPlayback.playbackTracking?.videostatsPlaybackUrl?.baseUrl,
-                            ),
-                        )
-                    }
-                } ?: Timber.tag(TAG).w("Skipping format persistence without content length for $mediaId")
+                database.query {
+                    upsert(
+                        FormatEntity(
+                            id = mediaId,
+                            itag = format.itag,
+                            mimeType = format.mimeType.split(";")[0],
+                            codecs = format.mimeType.split("codecs=")[1].removeSurrounding("\""),
+                            bitrate = format.bitrate,
+                            sampleRate = format.audioSampleRate,
+                            contentLength = format.contentLength!!,
+                            loudnessDb = loudnessDb,
+                            perceptualLoudnessDb = perceptualLoudnessDb,
+                            playbackUrl = nonNullPlayback.playbackTracking?.videostatsPlaybackUrl?.baseUrl,
+                        ),
+                    )
+                }
                 recoverSongDeduped(mediaId, nonNullPlayback)
 
                 if (bypassCacheForQualityChange.remove(mediaId)) {
@@ -4098,9 +4176,6 @@ class MusicService :
                     requestHeaders = nonNullPlayback.streamHeaders,
                     clientName = nonNullPlayback.streamClient,
                     expiresInSeconds = nonNullPlayback.streamExpiresInSeconds,
-                    requireBoundedRange = nonNullPlayback.requireBoundedRange,
-                    rangeChunkSizeBytes = nonNullPlayback.rangeChunkSizeBytes,
-                    useRangeChunks = nonNullPlayback.useRangeChunks,
                     expectedGeneration = cacheGeneration,
                 )
 
@@ -4108,26 +4183,17 @@ class MusicService :
                     playbackUrlCache[cacheKey(mediaId)] = it
                 }
 
-                return@Factory dataSpec.withResolvedStream(
-                    CachedStreamUrl(
-                        url = streamUrl,
-                        requestHeaders = nonNullPlayback.streamHeaders,
-                        clientName = nonNullPlayback.streamClient,
-                        requireBoundedRange = nonNullPlayback.requireBoundedRange,
-                        rangeChunkSizeBytes = nonNullPlayback.rangeChunkSizeBytes,
-                        useRangeChunks = nonNullPlayback.useRangeChunks,
-                    ),
-                )
+                return@Factory dataSpec
+                    .withUri(streamUrl.toUri())
+                    .subrange(dataSpec.uriPositionOffset, CHUNK_LENGTH)
+                    .withRequestHeaders(dataSpec.httpRequestHeaders + nonNullPlayback.streamHeaders)
             }
         }
     }
 
-    private fun createMediaSourceFactory(
-        normalizationProcessor: VolumeNormalizationAudioProcessor,
-        playerProvider: () -> ExoPlayer?,
-    ) =
+    private fun createMediaSourceFactory() =
         DefaultMediaSourceFactory(
-            createDataSourceFactory(normalizationProcessor, playerProvider),
+            createDataSourceFactory(),
             ExtractorsFactory {
                 arrayOf(MatroskaExtractor(), FragmentedMp4Extractor(), Mp4Extractor())
             },
@@ -4214,6 +4280,7 @@ class MusicService :
         if (playbackStats.totalPlayTimeMs >= historyDurationMs &&
             !dataStore.get(PauseListenHistoryKey, false)
         ) {
+            val activeProfile = dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
             database.query {
                 incrementTotalPlayTime(mediaItem.mediaId, playbackStats.totalPlayTimeMs)
                 try {
@@ -4222,6 +4289,7 @@ class MusicService :
                             songId = mediaItem.mediaId,
                             timestamp = LocalDateTime.now(),
                             playTime = playbackStats.totalPlayTimeMs,
+                            profile = activeProfile,
                         ),
                     )
                 } catch (_: SQLException) {
@@ -4276,8 +4344,14 @@ class MusicService :
             scope.launch(Dispatchers.IO) {
                 val playbackUrl =
                     playbackUrlCache[cacheKey(mediaItem.mediaId)]
+                        ?: YTPlayerUtils
+                            .playerResponseForMetadata(mediaItem.mediaId, null)
+                            .getOrNull()
+                            ?.playbackTracking
+                            ?.videostatsPlaybackUrl
+                            ?.baseUrl
                 if (playbackUrl == null) {
-                    Timber.tag(TAG).w("No playback tracking URL available; skipping YouTube history registration")
+                    Timber.tag(TAG).w("No playback tracking URL available for $mediaItem.mediaId, skipping YouTube history registration")
                     return@launch
                 }
                 YouTube
@@ -4494,24 +4568,14 @@ class MusicService :
         closeAudioEffectSession()
         mediaLibrarySessionCallback.release()
         mediaSession?.release()
-        crossfadeMessage?.cancel()
-        crossfadeMessage = null
-        crossfadeJob?.cancel()
-        crossfadeJob = null
-        secondaryPlayer?.let { pendingPlayer ->
-            pendingPlayer.removeListener(secondaryPlayerListener)
-            releaseExoPlayer(pendingPlayer)
-        }
-        secondaryPlayer = null
-        fadingPlayer?.let(::releaseExoPlayer)
-        fadingPlayer = null
-        isCrossfading = false
         player.removeListener(this)
         sleepTimer?.let { player.removeListener(it) }
+        playerNormalizationProcessors.remove(player)
+        playerSilenceProcessors.remove(player)
         initialBufferRecoveryJob?.cancel()
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
-        releaseExoPlayer(player)
+        player.release()
         scope.cancel()
         super.onDestroy()
         shutdownDeferred.complete(Unit)
@@ -4576,12 +4640,8 @@ class MusicService :
         // On Android O+, every startForegroundService() call requires
         // Service.startForeground() to be called within a short timeout.
         // Some OEMs (e.g. MIUI) strictly enforce this even when the
-        // service is already in the foreground, so promote here unless Media3 is handling a
-        // notification dismissal. Re-promoting that intent immediately restores the dismissed
-        // media control.
-        val isNotificationDismissal =
-            intent?.getBooleanExtra(MediaNotification.NOTIFICATION_DISMISSED_EVENT_KEY, false) == true
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !isNotificationDismissal) {
+        // service is already in the foreground, so always promote here.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             if (!ensureForegroundWithLatestNotificationOrStop()) {
                 return START_NOT_STICKY
             }
@@ -4916,6 +4976,23 @@ class MusicService :
         widgetUpdateJob = null
     }
 
+    private fun shareSong() {
+        val songData = currentSong.value
+        val songId = songData?.song?.id ?: return
+
+        val shareIntent =
+            Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_TEXT, "https://music.youtube.com/watch?v=$songId")
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+        startActivity(
+            Intent.createChooser(shareIntent, null).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
+    }
+
     /**
      * Get the stream URL for a given media ID.
      * This is used for Google Cast to send the audio URL to Chromecast.
@@ -4925,7 +5002,7 @@ class MusicService :
             try {
                 val song = database.songEntity(mediaId)
                 val playbackData =
-                    InnerTubeXPlayer
+                    YTPlayerUtils
                         .playerResponseForPlayback(
                             videoId = mediaId,
                             audioQuality = audioQuality,
@@ -5006,12 +5083,16 @@ class MusicService :
     private fun startCrossfade() {
         if (isCrossfading) return
 
-        val repeatMode = player.repeatMode
-        val shuffleModeEnabled = player.shuffleModeEnabled
+
+
+        // Preserve player state before creating the secondary player
+        // Use runBlocking to ensure we get the correct state from DataStore
+        val savedRepeatMode = runBlocking { dataStore.get(RepeatModeKey, REPEAT_MODE_OFF) }
+        val savedShuffleEnabled = runBlocking { dataStore.get(ShuffleModeKey, false) }
 
         // For repeat-one, crossfade back into the same track
         val targetIndex =
-            if (repeatMode == REPEAT_MODE_ONE) {
+            if (savedRepeatMode == REPEAT_MODE_ONE) {
                 player.currentMediaItemIndex
             } else {
                 player.nextMediaItemIndex
@@ -5034,8 +5115,8 @@ class MusicService :
 
         secPlayer.setPlaybackParameters(player.playbackParameters)
 
-        secPlayer.repeatMode = repeatMode
-        secPlayer.shuffleModeEnabled = shuffleModeEnabled
+        secPlayer.repeatMode = savedRepeatMode
+        secPlayer.shuffleModeEnabled = savedShuffleEnabled
         secPlayer.playbackParameters = player.playbackParameters
 
         try {
@@ -5043,15 +5124,15 @@ class MusicService :
             secPlayer.playWhenReady = true
         } catch (e: Exception) {
             Timber.tag(TAG).e(e, "Failed to prepare secondary player for crossfade")
-            secPlayer.removeListener(secondaryPlayerListener)
-            releaseExoPlayer(secPlayer)
+            playerNormalizationProcessors.remove(secPlayer)
+            secPlayer.release()
             secondaryPlayer = null
             return
         }
 
         performCrossfadeSwap()
 
-        if (shuffleModeEnabled) {
+        if (savedShuffleEnabled) {
             val shufflePlaylistFirst = dataStore.get(ShufflePlaylistFirstKey, false)
             applyShuffleOrder(player.currentMediaItemIndex, player.mediaItemCount, shufflePlaylistFirst)
         }
@@ -5067,9 +5148,6 @@ class MusicService :
         _playerFlow.value = player
         secondaryPlayer = null
 
-        // Do not persist the retired player's temporary repeat-off state.
-        fadingPlayer?.removeListener(this)
-        sleepTimer?.let { timer -> fadingPlayer?.removeListener(timer) }
         fadingPlayer?.repeatMode = Player.REPEAT_MODE_OFF
         fadingPlayer?.let {
             val currentIndex = it.currentMediaItemIndex
@@ -5077,6 +5155,9 @@ class MusicService :
                 it.removeMediaItems(currentIndex + 1, it.mediaItemCount)
             }
         }
+
+        fadingPlayer?.removeListener(this)
+        sleepTimer?.let { timer -> fadingPlayer?.removeListener(timer) }
 
         player.addListener(
             object : Player.Listener {
@@ -5160,13 +5241,11 @@ class MusicService :
     }
 
     private fun cleanupCrossfade(fadingPlayerSessionId: Int = C.AUDIO_SESSION_ID_UNSET) {
-        fadingPlayer?.let { previousPlayer ->
-            previousPlayer.stop()
-            previousPlayer.clearMediaItems()
-            releaseExoPlayer(previousPlayer)
-        }
+        fadingPlayer?.let { playerNormalizationProcessors.remove(it) }
+        fadingPlayer?.stop()
+        fadingPlayer?.clearMediaItems()
+        fadingPlayer?.release()
         fadingPlayer = null
-        crossfadeJob = null
         isCrossfading = false
         applyEffectiveVolume()
         sleepTimer?.notifySongTransition()
@@ -5176,13 +5255,6 @@ class MusicService :
         if (fadingPlayerSessionId != C.AUDIO_SESSION_ID_UNSET && fadingPlayerSessionId > 0) {
             closeAudioEffectSession(sessionIdOverride = fadingPlayerSessionId, clearNormalizationCache = true)
         }
-    }
-
-    private fun releaseExoPlayer(player: ExoPlayer) {
-        playerNormalizationProcessors.remove(player)
-        playerSilenceProcessors.remove(player)
-        playerEqualizerProcessors.remove(player)?.let(equalizerService::removeAudioProcessor)
-        player.release()
     }
 
     companion object {
@@ -5218,6 +5290,9 @@ class MusicService :
 
         private const val INITIAL_BUFFER_RECOVERY_DELAY_MS = 15_000L
         private const val INITIAL_BUFFER_RECOVERY_POSITION_MS = 5_000L
+        private const val MAX_GAIN_MB = 300 // Maximum gain in millibels (3 dB)
+        private const val MIN_GAIN_MB = -1500 // Minimum gain in millibels (-15 dB)
+
         private const val TAG = "MusicService"
 
         @Volatile
@@ -5227,15 +5302,4 @@ class MusicService :
         @Volatile
         var shutdownDeferred = kotlinx.coroutines.CompletableDeferred<Unit>().apply { complete(Unit) }
     }
-}
-
-internal fun normalizationGainMb(
-    loudnessDb: Double?,
-    perceptualLoudnessDb: Double?,
-    targetLufs: Float,
-): Int? {
-    val measuredLufs = perceptualLoudnessDb ?: loudnessDb?.let { it + LoudnessLevel.AGGRESSIVE.targetLufs }
-    return measuredLufs
-        ?.let { (-(it - targetLufs) * 100.0).toInt() }
-        ?.coerceIn(-1500, 300)
 }

@@ -55,6 +55,7 @@ import com.metrolist.music.ui.screens.settings.PrivacySettings
 import com.metrolist.music.ui.screens.settings.RomanizationSettings
 import com.metrolist.music.ui.screens.settings.SettingsScreen
 import com.metrolist.music.ui.screens.settings.StorageSettings
+import com.metrolist.music.ui.screens.settings.StreamSourcesSettings
 import com.metrolist.music.ui.screens.settings.ThemeScreen
 import com.metrolist.music.ui.screens.settings.UpdaterScreen
 import com.metrolist.music.ui.screens.settings.integrations.DiscordSettings
@@ -354,7 +355,7 @@ fun NavGraphBuilder.navigationBuilder(
     }
 
     composable("settings/appearance") {
-        AppearanceSettings(navController, snackbarHostState)
+        AppearanceSettings(navController, activity, snackbarHostState)
     }
 
     composable("settings/appearance/theme") {
@@ -375,6 +376,10 @@ fun NavGraphBuilder.navigationBuilder(
 
     composable("settings/player") {
         PlayerSettings(navController)
+    }
+
+    composable("settings/stream_sources") {
+        StreamSourcesSettings(navController)
     }
 
     composable("settings/storage") {
@@ -417,11 +422,8 @@ fun NavGraphBuilder.navigationBuilder(
         LoginScreen(navController)
     }
 
-    composable("switch_channel") {
-        LoginScreen(
-            navController = navController,
-            isSwitchingChannel = true,
-        )
+    composable("login_mrs") {
+        LoginScreen(navController, targetSlot = AccountSlot.MRS)
     }
 
     composable("wrapped") {

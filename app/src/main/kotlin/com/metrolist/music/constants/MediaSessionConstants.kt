@@ -16,6 +16,7 @@ object MediaSessionConstants {
     const val ACTION_TOGGLE_REPEAT_MODE = "TOGGLE_REPEAT_MODE"
     const val ACTION_ADD_TO_TARGET_PLAYLIST = "ADD_TO_TARGET_PLAYLIST"
     const val ACTION_TOGGLE_BLACKLIST = "TOGGLE_BLACKLIST"
+    const val ACTION_TOGGLE_MRS_MODE = "TOGGLE_MRS_MODE"
 
     val CommandToggleLibrary = SessionCommand(ACTION_TOGGLE_LIBRARY, Bundle.EMPTY)
     val CommandToggleLike = SessionCommand(ACTION_TOGGLE_LIKE, Bundle.EMPTY)
@@ -24,6 +25,7 @@ object MediaSessionConstants {
     val CommandToggleRepeatMode = SessionCommand(ACTION_TOGGLE_REPEAT_MODE, Bundle.EMPTY)
     val CommandAddToTargetPlaylist = SessionCommand(ACTION_ADD_TO_TARGET_PLAYLIST, Bundle.EMPTY)
     val CommandToggleBlacklist = SessionCommand(ACTION_TOGGLE_BLACKLIST, Bundle.EMPTY)
+    val CommandToggleMrsMode = SessionCommand(ACTION_TOGGLE_MRS_MODE, Bundle.EMPTY)
 
     const val TARGET_PLAYLIST_AUTO = "auto"
 }

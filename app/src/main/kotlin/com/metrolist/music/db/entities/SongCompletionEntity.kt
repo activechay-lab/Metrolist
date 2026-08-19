@@ -8,16 +8,17 @@ package com.metrolist.music.db.entities
 import androidx.compose.runtime.Immutable
 import androidx.room.Entity
 import androidx.room.ForeignKey
-import androidx.room.PrimaryKey
+import androidx.room.Index
 
 /**
  * Tracks how many times a song has been played to completion (reached the
- * end of playback naturally, not skipped/stopped early). Used to drive
- * auto-like-after-N-completions.
+ * end of playback naturally, not skipped/stopped early), separately per Mrs
+ * Mode profile. Used to drive auto-like-after-N-completions.
  */
 @Immutable
 @Entity(
     tableName = "song_completion",
+    primaryKeys = ["songId", "profile"],
     foreignKeys = [
         ForeignKey(
             entity = SongEntity::class,
@@ -26,8 +27,10 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE,
         ),
     ],
+    indices = [Index(value = ["songId"])],
 )
 data class SongCompletionEntity(
-    @PrimaryKey val songId: String,
+    val songId: String,
+    val profile: String = "NORMAL",
     val count: Int = 0,
 )

@@ -85,6 +85,7 @@ constructor(
     var toggleLibrary: () -> Unit = {}
     var addToTargetPlaylist: () -> Unit = {}
     var toggleBlacklist: () -> Unit = {}
+    var toggleMrsMode: () -> Unit = {}
 
     fun release() {
         scope.cancel()
@@ -105,6 +106,7 @@ constructor(
                 .add(MediaSessionConstants.CommandToggleRepeatMode)
                 .add(MediaSessionConstants.CommandAddToTargetPlaylist)
                 .add(MediaSessionConstants.CommandToggleBlacklist)
+                .add(MediaSessionConstants.CommandToggleMrsMode)
                 .build(),
             connectionResult.availablePlayerCommands,
         )
@@ -126,6 +128,7 @@ constructor(
             MediaSessionConstants.ACTION_TOGGLE_REPEAT_MODE -> session.player.toggleRepeatMode()
             MediaSessionConstants.ACTION_ADD_TO_TARGET_PLAYLIST -> addToTargetPlaylist()
             MediaSessionConstants.ACTION_TOGGLE_BLACKLIST -> toggleBlacklist()
+            MediaSessionConstants.ACTION_TOGGLE_MRS_MODE -> toggleMrsMode()
         }
         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
     }

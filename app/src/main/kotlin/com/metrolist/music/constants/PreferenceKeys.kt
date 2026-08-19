@@ -537,6 +537,61 @@ val AccountEmailKey = stringPreferencesKey("accountEmail")
 val AccountChannelHandleKey = stringPreferencesKey("accountChannelHandle")
 val UseLoginForBrowse = booleanPreferencesKey("useLoginForBrowse")
 
+enum class MrsModeProfile {
+    NORMAL,
+    MRS,
+    ;
+
+    fun toggle() =
+        when (this) {
+            NORMAL -> MRS
+            MRS -> NORMAL
+        }
+}
+
+val ActiveProfileKey = stringPreferencesKey("activeProfile")
+
+// What "jump to their music on switch" seeds the radio from — see
+// MrsModeSeedSourceKey. OFF leaves the current song playing unchanged, same
+// as if the feature didn't exist (only the *next* autoplay/radio pick
+// reflects the new profile).
+enum class MrsModeSeedSource {
+    OFF,
+    LIKED, // random pick from Liked Music (server library, falls back to locally-liked songs)
+    HISTORY, // most recently played song under this profile (falls back to slower listening-history table)
+    RANDOM, // randomly picks between a LIKED-style and a HISTORY-style candidate each time
+}
+
+val MrsModeSeedSourceKey = stringPreferencesKey("mrsModeSeedSource")
+
+// Immediate last-played-song pointer per profile, updated the instant a track
+// starts playing. Deliberately separate from the `event` listening-history
+// table, which only records a play once it clears HistoryDuration's "counts
+// as a listen" threshold (default 30s) AND the playback session has actually
+// ended — too slow/unreliable a signal for "jump to her music" on switch,
+// since a quick toggle-and-test (or toggling before a song finishes) would
+// never have anything to seed from.
+val LastPlayedSongIdNormalKey = stringPreferencesKey("lastPlayedSongIdNormal")
+val LastPlayedSongIdMrsKey = stringPreferencesKey("lastPlayedSongIdMrs")
+
+// "Vault" keys: each profile's own persisted YouTube Music session, independent of
+// which one is currently mirrored into the live InnerTubeCookieKey/VisitorDataKey/
+// DataSyncIdKey/AccountNameKey/AccountEmailKey/AccountChannelHandleKey keys above.
+// MrsModeManager copies the active profile's vault into those live keys on toggle.
+val NormalInnerTubeCookieKey = stringPreferencesKey("normalInnerTubeCookie")
+val NormalVisitorDataKey = stringPreferencesKey("normalVisitorData")
+val NormalDataSyncIdKey = stringPreferencesKey("normalDataSyncId")
+val NormalAccountNameKey = stringPreferencesKey("normalAccountName")
+val NormalAccountEmailKey = stringPreferencesKey("normalAccountEmail")
+val NormalAccountChannelHandleKey = stringPreferencesKey("normalAccountChannelHandle")
+
+val MrsInnerTubeCookieKey = stringPreferencesKey("mrsInnerTubeCookie")
+val MrsVisitorDataKey = stringPreferencesKey("mrsVisitorData")
+val MrsDataSyncIdKey = stringPreferencesKey("mrsDataSyncId")
+val MrsAccountNameKey = stringPreferencesKey("mrsAccountName")
+val MrsAccountEmailKey = stringPreferencesKey("mrsAccountEmail")
+val MrsAccountChannelHandleKey = stringPreferencesKey("mrsAccountChannelHandle")
+
 val LanguageCodeToName =
     mapOf(
         "af" to "Afrikaans",
