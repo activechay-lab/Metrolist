@@ -10,7 +10,7 @@
 # Without this, R8 assigns short names (e.g. `j`, `k`) to renamed classes in a non-deterministic
 # order, causing byte-for-byte differences between builds. This is required for F-Droid / IzzyOnDroid
 # Reproducible Build verification. Code shrinking (dead code removal) remains fully enabled.
-# Since Metrolist is fully open-source, obfuscation provides no meaningful security benefit.
+# Since TuneTube is fully open-source, obfuscation provides no meaningful security benefit.
 -dontobfuscate
 
 # WebView JavaScript interfaces

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Preset home-screen name options shown in Settings > Appearance > App name. -->
-    <string name="app_name_option_1" translatable="false">Tune Tube</string>
+    <string name="app_name_option_1" translatable="false">TuneWave</string>
     <string name="app_name_option_2" translatable="false">Musicly</string>
     <string name="app_name_option_3" translatable="false">Soundly</string>
     <string name="app_name_option_4" translatable="false">VibeMusic</string>
