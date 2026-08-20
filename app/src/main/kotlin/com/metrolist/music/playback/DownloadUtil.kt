@@ -18,16 +18,20 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.offline.Download
 import androidx.media3.exoplayer.offline.DownloadManager
 import androidx.media3.exoplayer.offline.DownloadNotificationHelper
+import androidx.media3.exoplayer.scheduler.Requirements
 import com.metrolist.innertube.YouTube
 import com.metrolist.innertube.strategy.ContentHints
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
+import com.metrolist.music.constants.DownloadAudioQualityKey
+import com.metrolist.music.constants.DownloadWifiOnlyKey
 import com.metrolist.music.db.MusicDatabase
 import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.SongEntity
 import com.metrolist.music.di.DownloadCache
 import com.metrolist.music.di.PlayerCache
 import com.metrolist.music.utils.YTPlayerUtils
+import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.enumPreference
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +42,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -62,6 +67,12 @@ constructor(
     private val TAG = "DownloadUtil"
     private val connectivityManager = context.getSystemService<ConnectivityManager>()!!
     private val audioQuality by enumPreference(context, AudioQualityKey, AudioQuality.AUTO)
+    // AUTO means "follow the live streaming quality setting" (audioQuality above) --
+    // the only behavior before this preference existed. LOW/HIGH pin downloads to a
+    // quality independent of whatever streaming is currently set to.
+    private val downloadAudioQuality by enumPreference(context, DownloadAudioQualityKey, AudioQuality.AUTO)
+    private val effectiveDownloadAudioQuality: AudioQuality
+        get() = downloadAudioQuality.takeIf { it != AudioQuality.AUTO } ?: audioQuality
     private val songUrlCache = StreamUrlCache()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -106,7 +117,7 @@ constructor(
                 val song = database.songEntity(mediaId)
                 YTPlayerUtils.playerResponseForPlayback(
                     mediaId,
-                    audioQuality = audioQuality,
+                    audioQuality = effectiveDownloadAudioQuality,
                     connectivityManager = connectivityManager,
                     contentHints = ContentHints(
                         isExplicit = song?.explicit,
@@ -271,6 +282,22 @@ constructor(
             result[cursor.download.request.id] = cursor.download
         }
         downloads.value = result
+
+        // Applies immediately on collection (DataStore emits the current value right
+        // away) and again on every future toggle, so this covers both initial setup
+        // and live changes from Settings without a separate one-shot read.
+        scope.launch {
+            context.dataStore.data
+                .map { it[DownloadWifiOnlyKey] ?: false }
+                .distinctUntilChanged()
+                .collect { wifiOnly ->
+                    downloadManager.requirements = if (wifiOnly) {
+                        Requirements(Requirements.NETWORK_UNMETERED)
+                    } else {
+                        Requirements(Requirements.NETWORK)
+                    }
+                }
+        }
     }
 
     fun getDownload(songId: String): Flow<Download?> = downloads.map { it[songId] }

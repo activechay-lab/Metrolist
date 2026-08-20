@@ -17,8 +17,14 @@ class MediaLibrarySessionCallbackTest {
         assertTrue(isBrowsableMediaId(MusicService.ARTIST))
         assertTrue(isBrowsableMediaId("${MusicService.ARTIST}/artist-id"))
         assertTrue(isBrowsableMediaId("${MusicService.PLAYLIST}/playlist-id"))
+        assertTrue(isBrowsableMediaId(MusicService.QUEUE))
+        assertTrue(isBrowsableMediaId(MusicService.RECENTLY_PLAYED))
         assertFalse(isBrowsableMediaId("unknown"))
         assertFalse(isBrowsableMediaId("${MusicService.SONG}/song-id"))
+        // Queue/Recently Played items themselves are leaf (playable) nodes, not
+        // browsable sub-folders -- only the section roots above are browsable.
+        assertFalse(isBrowsableMediaId("${MusicService.QUEUE}/song-id"))
+        assertFalse(isBrowsableMediaId("${MusicService.RECENTLY_PLAYED}/song-id"))
     }
 
     @Test

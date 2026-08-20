@@ -5109,11 +5109,14 @@ class MusicService :
     }
 
     private fun isNextItemGapless(): Boolean {
-        val current = player.currentMediaItem?.mediaMetadata ?: return false
+        // Compare album IDs rather than album title strings: two different releases
+        // (e.g. a compilation and a reissue) can legitimately share the same album
+        // title, which would otherwise cause a false-positive gapless classification.
+        val currentAlbumId = player.currentMediaItem?.metadata?.album?.id ?: return false
         val nextIndex = player.nextMediaItemIndex
         if (nextIndex == C.INDEX_UNSET) return false
-        val next = player.getMediaItemAt(nextIndex).mediaMetadata
-        return current.albumTitle != null && current.albumTitle == next.albumTitle
+        val nextAlbumId = player.getMediaItemAt(nextIndex).metadata?.album?.id ?: return false
+        return currentAlbumId == nextAlbumId
     }
 
     private fun startCrossfade() {
@@ -5306,6 +5309,8 @@ class MusicService :
         const val PLAYLIST = "playlist"
         const val YOUTUBE_PLAYLIST = "youtube_playlist"
         const val SEARCH = "search"
+        const val QUEUE = "queue"
+        const val RECENTLY_PLAYED = "recently_played"
         const val SHUFFLE_ACTION = "__shuffle__"
 
         const val CHANNEL_ID = "music_channel_01"

@@ -10,6 +10,7 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.metrolist.music.db.entities.AlbumEntity
 import com.metrolist.music.db.entities.ArtistEntity
+import com.metrolist.music.db.entities.Event
 import com.metrolist.music.db.entities.PlaylistEntity
 import com.metrolist.music.db.entities.PlaylistSongMap
 import com.metrolist.music.db.entities.SongAlbumMap
@@ -104,6 +105,13 @@ class AndroidAutoDatabasePaginationTest {
                         position = index / 2,
                     ),
                 )
+                database.dao.insert(
+                    Event(
+                        songId = songId,
+                        timestamp = libraryDate,
+                        playTime = 1_000L,
+                    ),
+                )
             }
         }
 
@@ -136,6 +144,12 @@ class AndroidAutoDatabasePaginationTest {
         assertCompletePagination(
             id = { it.song.id },
             loadPage = { limit, offset -> database.dao.playlistSongs("playlist", limit, offset) },
+        )
+        assertCompletePagination(
+            id = { it.id },
+            loadPage = { limit, offset ->
+                database.dao.recentlyPlayedSongsDistinct("NORMAL", limit, offset)
+            },
         )
         assertCompletePagination(
             expectedSize = 1_002,

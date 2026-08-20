@@ -105,15 +105,14 @@ class InnerTube {
                 
                 // Retry on connection failure
                 retryOnConnectionFailure(true)
-                
-                // Cache configuration for better performance
-                cache(
-                    okhttp3.Cache(
-                        directory = java.io.File(System.getProperty("java.io.tmpdir"), "http_cache"),
-                        maxSize = 50L * 1024L * 1024L // 50 MB
-                    )
-                )
-                
+
+                // Note: no OkHttp response cache here. Nearly every innertube endpoint
+                // (search/browse/next/player/etc.) is a POST request, which OkHttp's
+                // standard HTTP cache never caches regardless of response headers -- a
+                // disk cache configured for this client would sit unused. App-level
+                // caching for specific endpoints (e.g. artist/browse pages) is handled
+                // deliberately in Room instead (see ArtistPageCache, FormatEntity).
+
                 // Apply proxy configuration
                 this@InnerTube.proxy?.let { proxyConfig ->
                     proxy(proxyConfig)
@@ -170,9 +169,16 @@ class InnerTube {
     }
 
     /**
-     * Simple retry wrapper for transient IO errors (socket aborts, timeouts).
-     * Retries the given block up to [maxAttempts] times with exponential backoff.
-     * Cancellation is respected since [delay] will throw if the coroutine is cancelled.
+     * Simple retry wrapper for transient IO errors (socket aborts, timeouts) and
+     * server-side failures. Retries the given block up to [maxAttempts] times with
+     * exponential backoff. Cancellation is respected since [delay] will throw if the
+     * coroutine is cancelled.
+     *
+     * HTTP 429 (rate limited) is retried, honoring YouTube's `Retry-After` header when
+     * present -- this matters because several call sites (Home's Daily Discover/Similar
+     * Recommendations fan-out) issue many concurrent requests and can trip rate limits.
+     * Other 4xx codes (403 in particular) usually indicate an auth/permission problem
+     * that a retry can't fix, so those propagate immediately as before.
      */
     private suspend fun <T> withRetry(
         maxAttempts: Int = 3,
@@ -189,6 +195,19 @@ class InnerTube {
                 attempt++
                 if (attempt >= maxAttempts) throw e
                 delay(currentDelay)
+                currentDelay = (currentDelay * factor).toLong()
+            } catch (e: ServerResponseException) {
+                attempt++
+                if (attempt >= maxAttempts) throw e
+                delay(currentDelay)
+                currentDelay = (currentDelay * factor).toLong()
+            } catch (e: ClientRequestException) {
+                attempt++
+                if (e.response.status.value != 429 || attempt >= maxAttempts) throw e
+                val retryAfterMillis = e.response.headers[HttpHeaders.RetryAfter]
+                    ?.toLongOrNull()
+                    ?.times(1000)
+                delay(retryAfterMillis ?: currentDelay)
                 currentDelay = (currentDelay * factor).toLong()
             }
         }
