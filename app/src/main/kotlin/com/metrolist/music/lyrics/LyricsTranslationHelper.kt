@@ -147,22 +147,32 @@ object LyricsTranslationHelper {
         
         val translatedLines = lyricsEntity.translatedLyrics.split("\n")
         val nonEmptyEntries = lyrics.filter { it.text.isNotBlank() }
-        
-        if (translatedLines.size >= nonEmptyEntries.size) {
-            var transIndex = 0
-            lyrics.forEach { entry ->
-                if (entry.text.isNotBlank() && transIndex < translatedLines.size) {
-                    entry.translatedTextFlow.value = translatedLines[transIndex]
-                    transIndex++
-                }
-            }
-            
-            // Also cache them
-            val fullText = nonEmptyEntries.joinToString("\n") { it.text }
-            val cacheKey = getCacheKey(fullText, mode, targetLanguage)
-            translationCache[cacheKey] = translatedLines
-            _hasActiveTranslations.value = true
+
+        if (translatedLines.size != nonEmptyEntries.size) {
+            // The AI can return a different line count than requested (an extra
+            // preamble line, a merged repeated chorus, etc). Previously a stored
+            // line count below nonEmptyEntries.size silently applied nothing here,
+            // leaving whatever translation state a previously-viewed song left behind
+            // on screen. Apply what we can (best-effort, in original order) instead of
+            // silently no-op'ing, and log so a real mismatch is diagnosable.
+            Timber.w(
+                "Translation line count mismatch on load: stored=${translatedLines.size} expected=${nonEmptyEntries.size}",
+            )
         }
+
+        var transIndex = 0
+        lyrics.forEach { entry ->
+            if (entry.text.isNotBlank()) {
+                entry.translatedTextFlow.value = translatedLines.getOrNull(transIndex)
+                transIndex++
+            }
+        }
+
+        // Also cache them
+        val fullText = nonEmptyEntries.joinToString("\n") { it.text }
+        val cacheKey = getCacheKey(fullText, mode, targetLanguage)
+        translationCache[cacheKey] = translatedLines
+        _hasActiveTranslations.value = true
     }
 
     fun translateLyrics(
@@ -391,6 +401,17 @@ object LyricsTranslationHelper {
 
                             // Map translations back to original non-empty entries only
                             val expectedCount = nonEmptyEntries.size
+                            if (translatedLines.size != expectedCount) {
+                                // Best-effort positional mapping below can misalign lines
+                                // when the AI's line count doesn't match what was sent
+                                // (merged/split lines, an extra preamble, etc) -- no
+                                // reliable way to detect *where* without a numbered-line
+                                // protocol (see plan future ideas). Logging so a garbled
+                                // translation is diagnosable instead of silently wrong.
+                                Timber.w(
+                                    "Translation line count mismatch: got=${translatedLines.size} expected=$expectedCount",
+                                )
+                            }
 
                             when {
                                 translatedLines.size >= expectedCount -> {

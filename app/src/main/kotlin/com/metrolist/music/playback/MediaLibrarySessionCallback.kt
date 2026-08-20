@@ -32,8 +32,10 @@ import com.metrolist.innertube.models.SongItem
 import com.metrolist.innertube.models.filterExplicit
 import com.metrolist.innertube.models.filterVideoSongs
 import com.metrolist.music.R
+import com.metrolist.music.constants.ActiveProfileKey
 import com.metrolist.music.constants.AndroidAutoSearchLocalLimitKey
 import com.metrolist.music.constants.HideExplicitKey
+import com.metrolist.music.constants.MrsModeProfile
 import com.metrolist.music.constants.HideVideoSongsKey
 import com.metrolist.music.constants.MediaSessionConstants
 import com.metrolist.music.constants.SongSortType
@@ -54,12 +56,14 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.guava.future
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.plus
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import com.metrolist.music.constants.AndroidAutoSectionsOrderKey
 import com.metrolist.music.constants.AndroidAutoYouTubePlaylistsKey
@@ -138,9 +142,33 @@ constructor(
         mediaSession: MediaSession,
         controller: MediaSession.ControllerInfo
     ): ListenableFuture<MediaItemsWithStartPosition> =
-        Futures.immediateFuture(
-            MediaItemsWithStartPosition(emptyList(), 0, C.TIME_UNSET),
-        )
+        scope.future {
+            val empty = MediaItemsWithStartPosition(emptyList(), 0, C.TIME_UNSET)
+            if (!::service.isInitialized) return@future empty
+
+            // MusicService restores its own persisted queue asynchronously from
+            // PERSISTENT_QUEUE_FILE in onCreate() (independent of this callback) --
+            // wait briefly for that to land rather than re-parsing the persisted
+            // queue file a second time here. Falls back to "nothing to resume"
+            // (previous behavior) if it doesn't land in time.
+            withTimeoutOrNull(3000) {
+                service.isPlayerReady.first { it }
+                while (service.player.mediaItemCount == 0) {
+                    delay(100)
+                }
+            }
+
+            val player = service.player
+            if (player.mediaItemCount == 0) {
+                empty
+            } else {
+                MediaItemsWithStartPosition(
+                    (0 until player.mediaItemCount).map { player.getMediaItemAt(it) },
+                    player.currentMediaItemIndex,
+                    player.currentPosition,
+                )
+            }
+        }
 
     override fun onGetLibraryRoot(
         session: MediaLibrarySession,
@@ -240,6 +268,27 @@ constructor(
                                         drawableUri(R.drawable.queue_music),
                                         MediaMetadata.MEDIA_TYPE_FOLDER_PLAYLISTS,
                                     )
+                                    AndroidAutoSection.QUEUE -> browsableMediaItem(
+                                        MusicService.QUEUE,
+                                        context.getString(R.string.queue),
+                                        null,
+                                        drawableUri(R.drawable.playlist_play),
+                                        MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+                                    )
+                                    AndroidAutoSection.RECENTLY_PLAYED -> browsableMediaItem(
+                                        MusicService.RECENTLY_PLAYED,
+                                        context.getString(R.string.recently_played),
+                                        null,
+                                        drawableUri(R.drawable.history),
+                                        MediaMetadata.MEDIA_TYPE_FOLDER_MIXED,
+                                    )
+                                    AndroidAutoSection.DOWNLOADS -> browsableMediaItem(
+                                        "${MusicService.PLAYLIST}/${PlaylistEntity.DOWNLOADED_PLAYLIST_ID}",
+                                        context.getString(R.string.downloaded_songs),
+                                        null,
+                                        drawableUri(R.drawable.download),
+                                        MediaMetadata.MEDIA_TYPE_PLAYLIST,
+                                    )
                                 }
                             }
                         if (showYoutubePlaylists) {
@@ -252,6 +301,40 @@ constructor(
                             )
                         } else {
                             rootItems
+                        }
+                    }
+                    MusicService.QUEUE -> {
+                        // Live player state, not Room-backed -- ExoPlayer requires main-thread
+                        // access, unlike every other browse branch here which reads the DB on IO.
+                        if (!::service.isInitialized) {
+                            emptyList()
+                        } else {
+                            withContext(Dispatchers.Main) {
+                                val player = service.player
+                                (0 until player.mediaItemCount).mapIndexed { index, _ ->
+                                    val item = player.getMediaItemAt(index)
+                                    val meta = item.mediaMetadata
+                                    MediaItem.Builder()
+                                        .setMediaId("${MusicService.QUEUE}/${item.mediaId}")
+                                        .setMediaMetadata(
+                                            MediaMetadata.Builder()
+                                                .setTitle(
+                                                    if (index == player.currentMediaItemIndex) {
+                                                        "▶ ${meta.title}"
+                                                    } else {
+                                                        meta.title
+                                                    }
+                                                )
+                                                .setSubtitle(meta.artist)
+                                                .setArtist(meta.artist)
+                                                .setArtworkUri(meta.artworkUri)
+                                                .setIsPlayable(true)
+                                                .setIsBrowsable(false)
+                                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                                                .build()
+                                        ).build()
+                                }
+                            }
                         }
                     }
                     MusicService.YOUTUBE_PLAYLIST -> {
@@ -399,6 +482,12 @@ constructor(
             parentId == MusicService.SONG ->
                 database.songsByCreateDateAsc(request.limit, request.offset)
                     .map { it.toMediaItem(parentId) }
+
+            parentId == MusicService.RECENTLY_PLAYED -> {
+                val profile = context.dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
+                database.recentlyPlayedSongsDistinct(profile, request.limit, request.offset)
+                    .map { it.toMediaItem(parentId) }
+            }
 
             parentId.startsWith("${MusicService.ARTIST}/") ->
                 database.artistSongsByCreateDateAsc(
@@ -660,6 +749,31 @@ constructor(
                         allSongs.map { it.toMediaItem() },
                         allSongs.indexOfFirst { it.id == songId }.takeIf { it != -1 } ?: 0,
                         startPositionMs
+                    )
+                }
+
+                MusicService.QUEUE -> {
+                    val songId = path.getOrNull(1) ?: return@future defaultResult
+                    if (!::service.isInitialized) return@future defaultResult
+                    withContext(Dispatchers.Main) {
+                        val player = service.player
+                        val items = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+                        MediaItemsWithStartPosition(
+                            items,
+                            items.indexOfFirst { it.mediaId == songId }.takeIf { it != -1 } ?: 0,
+                            startPositionMs,
+                        )
+                    }
+                }
+
+                MusicService.RECENTLY_PLAYED -> {
+                    val songId = path.getOrNull(1) ?: return@future defaultResult
+                    val profile = context.dataStore.get(ActiveProfileKey, MrsModeProfile.NORMAL.name)
+                    val songs = database.recentlyPlayedSongsDistinct(profile, RECENTLY_PLAYED_QUEUE_LIMIT, 0)
+                    MediaItemsWithStartPosition(
+                        songs.map { it.toMediaItem() },
+                        songs.indexOfFirst { it.id == songId }.takeIf { it != -1 } ?: 0,
+                        startPositionMs,
                     )
                 }
 
@@ -940,10 +1054,17 @@ internal fun isBrowsableMediaId(mediaId: String): Boolean =
         mediaId == MusicService.ALBUM ||
         mediaId == MusicService.PLAYLIST ||
         mediaId == MusicService.YOUTUBE_PLAYLIST ||
+        mediaId == MusicService.QUEUE ||
+        mediaId == MusicService.RECENTLY_PLAYED ||
         mediaId.startsWith("${MusicService.ARTIST}/") ||
         mediaId.startsWith("${MusicService.ALBUM}/") ||
         mediaId.startsWith("${MusicService.PLAYLIST}/") ||
         mediaId.startsWith("${MusicService.YOUTUBE_PLAYLIST}/")
+
+// Recently Played is a linear listen-history browse, not a paged library category --
+// a bounded cap keeps a single "play from here" queue request sane without needing
+// full pagination support (see MAX_ANDROID_AUTO_PAGE_SIZE for the paging-request cap).
+internal const val RECENTLY_PLAYED_QUEUE_LIMIT = 200
 
 internal fun <T> List<T>.paginate(
     page: Int,

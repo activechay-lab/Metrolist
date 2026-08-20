@@ -113,6 +113,13 @@ enum class AudioQuality {
     HIGH,
 }
 
+// AUTO here means "match AudioQualityKey" (the streaming quality) -- the previous,
+// only behavior. LOW/HIGH let downloads be pinned to a quality independent of
+// whatever the live streaming quality setting is currently set to.
+val DownloadAudioQualityKey = stringPreferencesKey("downloadAudioQuality")
+
+val DownloadWifiOnlyKey = booleanPreferencesKey("downloadWifiOnly")
+
 val AudioOffload = booleanPreferencesKey("enableOffload")
 val AudioTrackPlaybackParamsKey = booleanPreferencesKey("audioTrackPlaybackParams")
 

@@ -5,6 +5,11 @@
 
     <string name="charts">Charts</string>
     <string name="mixes">Mixes</string>
+    <string name="recently_played">Recently played</string>
+    <string name="download_wifi_only">Wi-Fi only</string>
+    <string name="download_wifi_only_desc">Only download songs while connected to Wi-Fi</string>
+    <string name="download_audio_quality">Download quality</string>
+    <string name="download_audio_quality_match_streaming">Match streaming quality</string>
     <string name="back_button_desc">Back</string>
     <string name="album_cover_desc">Album cover</string>
     <string name="top_music_videos">Top music videos</string>

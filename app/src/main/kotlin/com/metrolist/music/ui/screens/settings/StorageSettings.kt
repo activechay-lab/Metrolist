@@ -50,16 +50,21 @@ import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.AudioQuality
+import com.metrolist.music.constants.DownloadAudioQualityKey
+import com.metrolist.music.constants.DownloadWifiOnlyKey
 import com.metrolist.music.constants.EnableSongCacheKey
 import com.metrolist.music.constants.MaxImageCacheSizeKey
 import com.metrolist.music.constants.MaxSongCacheSizeKey
 import com.metrolist.music.extensions.tryOrNull
 import com.metrolist.music.ui.component.ActionPromptDialog
+import com.metrolist.music.ui.component.EnumDialog
 import com.metrolist.music.ui.component.IconButton
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import android.text.format.Formatter
 import com.metrolist.music.ui.utils.backToMain
+import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -96,6 +101,15 @@ fun StorageSettings(
         key = EnableSongCacheKey,
         defaultValue = true
     )
+    val (downloadWifiOnly, onDownloadWifiOnlyChange) = rememberPreference(
+        key = DownloadWifiOnlyKey,
+        defaultValue = false
+    )
+    val (downloadAudioQuality, onDownloadAudioQualityChange) = rememberEnumPreference(
+        key = DownloadAudioQualityKey,
+        defaultValue = AudioQuality.AUTO
+    )
+    var showDownloadAudioQualityDialog by remember { mutableStateOf(false) }
 
     var clearDownloads by remember { mutableStateOf(false) }
     var clearCacheDialog by remember { mutableStateOf(false) }
@@ -168,6 +182,26 @@ fun StorageSettings(
             delay(500)
             downloadCacheSize = tryOrNull { downloadCache.cacheSpace } ?: 0
         }
+    }
+
+    if (showDownloadAudioQualityDialog) {
+        EnumDialog(
+            onDismiss = { showDownloadAudioQualityDialog = false },
+            onSelect = {
+                onDownloadAudioQualityChange(it)
+                showDownloadAudioQualityDialog = false
+            },
+            title = stringResource(R.string.download_audio_quality),
+            current = downloadAudioQuality,
+            values = AudioQuality.values().toList(),
+            valueText = {
+                when (it) {
+                    AudioQuality.AUTO -> stringResource(R.string.download_audio_quality_match_streaming)
+                    AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
+                    AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
+                }
+            }
+        )
     }
 
     if (clearDownloads) {
@@ -313,6 +347,41 @@ fun StorageSettings(
                         onClick = {
                             clearDownloads = true
                         },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.wifi_proxy),
+                        title = { Text(stringResource(R.string.download_wifi_only)) },
+                        description = { Text(stringResource(R.string.download_wifi_only_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = downloadWifiOnly,
+                                onCheckedChange = onDownloadWifiOnlyChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter = painterResource(
+                                            id = if (downloadWifiOnly) R.drawable.check else R.drawable.close
+                                        ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize)
+                                    )
+                                }
+                            )
+                        },
+                        onClick = { onDownloadWifiOnlyChange(!downloadWifiOnly) }
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.graphic_eq),
+                        title = { Text(stringResource(R.string.download_audio_quality)) },
+                        description = {
+                            Text(
+                                when (downloadAudioQuality) {
+                                    AudioQuality.AUTO -> stringResource(R.string.download_audio_quality_match_streaming)
+                                    AudioQuality.HIGH -> stringResource(R.string.audio_quality_high)
+                                    AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
+                                }
+                            )
+                        },
+                        onClick = { showDownloadAudioQualityDialog = true }
                     ),
                 ),
         )

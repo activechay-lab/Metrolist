@@ -1523,6 +1523,26 @@ interface DatabaseDao {
     @Query("SELECT * FROM event ORDER BY rowId DESC")
     fun events(): Flow<List<EventWithSong>>
 
+    // Distinct songs from play history, most-recently-played first (one row per song,
+    // its latest play). Paginated for Android Auto's Recently Played browse node --
+    // the event table can grow to thousands of rows over time and must never be loaded
+    // in full there (see the #4280 Android Auto pagination-safety fix).
+    @Transaction
+    @Query(
+        """
+        SELECT song.* FROM song
+        INNER JOIN (
+            SELECT songId, MAX(rowId) AS latestRowId
+            FROM event
+            WHERE profile = :profile
+            GROUP BY songId
+        ) latest ON song.id = latest.songId
+        ORDER BY latest.latestRowId DESC
+        LIMIT :limit OFFSET :offset
+        """
+    )
+    suspend fun recentlyPlayedSongsDistinct(profile: String = "NORMAL", limit: Int, offset: Int): List<Song>
+
     @Transaction
     @Query("SELECT * FROM event ORDER BY rowId ASC LIMIT 1")
     fun firstEvent(): Flow<EventWithSong?>

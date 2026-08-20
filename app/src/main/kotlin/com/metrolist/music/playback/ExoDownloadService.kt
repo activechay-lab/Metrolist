@@ -30,6 +30,22 @@ class ExoDownloadService : DownloadService(
     @Inject
     lateinit var downloadUtil: DownloadUtil
 
+    override fun onCreate() {
+        super.onCreate()
+        // downloadManager is a Hilt @Singleton, so guard against re-registering this
+        // listener every time the service process is recreated.
+        if (!terminalStateNotificationHelperRegistered) {
+            terminalStateNotificationHelperRegistered = true
+            downloadUtil.downloadManager.addListener(
+                TerminalStateNotificationHelper(
+                    this,
+                    downloadUtil.downloadNotificationHelper,
+                    NOTIFICATION_ID + 1,
+                )
+            )
+        }
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == REMOVE_ALL_PENDING_DOWNLOADS) {
             downloadManager.currentDownloads.forEach { download ->
@@ -85,5 +101,7 @@ class ExoDownloadService : DownloadService(
         const val NOTIFICATION_ID = 1
         const val JOB_ID = 1
         const val REMOVE_ALL_PENDING_DOWNLOADS = "REMOVE_ALL_PENDING_DOWNLOADS"
+
+        private var terminalStateNotificationHelperRegistered = false
     }
 }
