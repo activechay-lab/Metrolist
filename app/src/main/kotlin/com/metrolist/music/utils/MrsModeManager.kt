@@ -12,11 +12,13 @@ import com.metrolist.music.constants.AccountEmailKey
 import com.metrolist.music.constants.AccountNameKey
 import com.metrolist.music.constants.ActiveProfileKey
 import com.metrolist.music.constants.DataSyncIdKey
+import com.metrolist.music.constants.InnerTubeAuthUserKey
 import com.metrolist.music.constants.InnerTubeCookieKey
 import com.metrolist.music.constants.MrsAccountChannelHandleKey
 import com.metrolist.music.constants.MrsAccountEmailKey
 import com.metrolist.music.constants.MrsAccountNameKey
 import com.metrolist.music.constants.MrsDataSyncIdKey
+import com.metrolist.music.constants.MrsInnerTubeAuthUserKey
 import com.metrolist.music.constants.MrsInnerTubeCookieKey
 import com.metrolist.music.constants.MrsModeProfile
 import com.metrolist.music.constants.MrsVisitorDataKey
@@ -24,6 +26,7 @@ import com.metrolist.music.constants.NormalAccountChannelHandleKey
 import com.metrolist.music.constants.NormalAccountEmailKey
 import com.metrolist.music.constants.NormalAccountNameKey
 import com.metrolist.music.constants.NormalDataSyncIdKey
+import com.metrolist.music.constants.NormalInnerTubeAuthUserKey
 import com.metrolist.music.constants.NormalInnerTubeCookieKey
 import com.metrolist.music.constants.NormalVisitorDataKey
 import com.metrolist.music.constants.VisitorDataKey
@@ -69,6 +72,7 @@ class MrsModeManager @Inject constructor(
                 settings[NormalInnerTubeCookieKey] = settings[InnerTubeCookieKey].orEmpty()
                 settings[NormalVisitorDataKey] = settings[VisitorDataKey].orEmpty()
                 settings[NormalDataSyncIdKey] = settings[DataSyncIdKey].orEmpty()
+                settings[NormalInnerTubeAuthUserKey] = settings[InnerTubeAuthUserKey] ?: "0"
                 settings[NormalAccountNameKey] = settings[AccountNameKey].orEmpty()
                 settings[NormalAccountEmailKey] = settings[AccountEmailKey].orEmpty()
                 settings[NormalAccountChannelHandleKey] = settings[AccountChannelHandleKey].orEmpty()
@@ -104,6 +108,7 @@ class MrsModeManager @Inject constructor(
                 settings[NormalInnerTubeCookieKey] = settings[InnerTubeCookieKey].orEmpty()
                 settings[NormalVisitorDataKey] = settings[VisitorDataKey].orEmpty()
                 settings[NormalDataSyncIdKey] = settings[DataSyncIdKey].orEmpty()
+                settings[NormalInnerTubeAuthUserKey] = settings[InnerTubeAuthUserKey] ?: "0"
                 settings[NormalAccountNameKey] = settings[AccountNameKey].orEmpty()
                 settings[NormalAccountEmailKey] = settings[AccountEmailKey].orEmpty()
                 settings[NormalAccountChannelHandleKey] = settings[AccountChannelHandleKey].orEmpty()
@@ -111,6 +116,7 @@ class MrsModeManager @Inject constructor(
                 settings[MrsInnerTubeCookieKey] = settings[InnerTubeCookieKey].orEmpty()
                 settings[MrsVisitorDataKey] = settings[VisitorDataKey].orEmpty()
                 settings[MrsDataSyncIdKey] = settings[DataSyncIdKey].orEmpty()
+                settings[MrsInnerTubeAuthUserKey] = settings[InnerTubeAuthUserKey] ?: "0"
                 settings[MrsAccountNameKey] = settings[AccountNameKey].orEmpty()
                 settings[MrsAccountEmailKey] = settings[AccountEmailKey].orEmpty()
                 settings[MrsAccountChannelHandleKey] = settings[AccountChannelHandleKey].orEmpty()
@@ -121,6 +127,7 @@ class MrsModeManager @Inject constructor(
                 settings[InnerTubeCookieKey] = settings[NormalInnerTubeCookieKey].orEmpty()
                 settings[VisitorDataKey] = settings[NormalVisitorDataKey].orEmpty()
                 settings[DataSyncIdKey] = settings[NormalDataSyncIdKey].orEmpty()
+                settings[InnerTubeAuthUserKey] = settings[NormalInnerTubeAuthUserKey] ?: "0"
                 settings[AccountNameKey] = settings[NormalAccountNameKey].orEmpty()
                 settings[AccountEmailKey] = settings[NormalAccountEmailKey].orEmpty()
                 settings[AccountChannelHandleKey] = settings[NormalAccountChannelHandleKey].orEmpty()
@@ -128,6 +135,7 @@ class MrsModeManager @Inject constructor(
                 settings[InnerTubeCookieKey] = settings[MrsInnerTubeCookieKey].orEmpty()
                 settings[VisitorDataKey] = settings[MrsVisitorDataKey].orEmpty()
                 settings[DataSyncIdKey] = settings[MrsDataSyncIdKey].orEmpty()
+                settings[InnerTubeAuthUserKey] = settings[MrsInnerTubeAuthUserKey] ?: "0"
                 settings[AccountNameKey] = settings[MrsAccountNameKey].orEmpty()
                 settings[AccountEmailKey] = settings[MrsAccountEmailKey].orEmpty()
                 settings[AccountChannelHandleKey] = settings[MrsAccountChannelHandleKey].orEmpty()
@@ -160,6 +168,7 @@ class MrsModeManager @Inject constructor(
                 ?: it.takeIf { s -> s.endsWith("||") }?.substringBefore("||")
                 ?: it.substringAfter("||")
         }
+        YouTube.authUser = livePrefs[InnerTubeAuthUserKey] ?: "0"
 
         // Force an immediate re-sync of account-tied library data (playlists,
         // liked songs, etc.) under the new session — bypasses the normal
