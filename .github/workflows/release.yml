@@ -37,8 +37,15 @@ jobs:
             exit 0
           fi
 
-          NEW_VERSION=$(grep -m1 -oP '^\s*versionName\s*=\s*"\K[^"]+' app/build.gradle.kts || echo "")
-          VERSION_CODE=$(grep -m1 -oP '^\s*versionCode\s*=\s*\K\d+' app/build.gradle.kts || echo "")
+          # Anchored to start with a digit so this only matches the real
+          # "versionName = "13.6.3"" declaration -- upstream's nightly
+          # build-commit-suffix line (versionName = "$baseVersionName+$it")
+          # also matches a bare `versionName\s*=\s*"..."` pattern otherwise,
+          # since it's unevaluated Kotlin string interpolation at grep time,
+          # not an actual version. That previously produced two matches and
+          # corrupted $GITHUB_OUTPUT.
+          NEW_VERSION=$(grep -oP 'versionName\s*=\s*"\K[0-9][^"]*' app/build.gradle.kts | head -n1 || echo "")
+          VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -n1 || echo "")
 
           if [ -z "$NEW_VERSION" ]; then
             echo "Could not find versionName in app/build.gradle.kts"
