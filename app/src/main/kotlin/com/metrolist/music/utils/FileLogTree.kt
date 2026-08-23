@@ -7,11 +7,13 @@ package com.metrolist.music.utils
 
 import android.content.Context
 import android.util.Log
+import com.metrolist.music.constants.LogErrorsOnlyKey
 import timber.log.Timber
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Persists Timber logs to a capped file on disk, so a user can retrieve
@@ -26,7 +28,13 @@ class FileLogTree(context: Context) : Timber.Tree() {
     private val file = logFile(context)
     private val dateFormat = SimpleDateFormat("MM-dd HH:mm:ss.SSS", Locale.US)
 
+    init {
+        errorsOnly.set(context.dataStore.get(LogErrorsOnlyKey, false))
+    }
+
     override fun log(priority: Int, tag: String?, message: String, t: Throwable?) {
+        if (errorsOnly.get() && priority < Log.WARN) return
+
         val line = buildString {
             append(dateFormat.format(Date()))
             append(' ')
@@ -72,6 +80,13 @@ class FileLogTree(context: Context) : Timber.Tree() {
     companion object {
         private const val MAX_BYTES = 1_500_000L
         private const val TRIM_TO_BYTES = 1_000_000L
+
+        // In-memory mirror of LogErrorsOnlyKey, checked on every log() call —
+        // a DataStore read per log line would be far too slow. Seeded from the
+        // persisted preference when the tree is planted (App.onCreate) and
+        // updated directly (not just via DataStore) by the Debug settings
+        // toggle, so flipping it takes effect immediately without a restart.
+        val errorsOnly = AtomicBoolean(false)
 
         fun logFile(context: Context): File = File(context.cacheDir, "app_log.txt")
 

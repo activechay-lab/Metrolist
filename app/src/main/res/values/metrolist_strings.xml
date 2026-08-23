@@ -342,8 +342,10 @@
     <string name="mrs_mode_log_in">Log in Mrs account</string>
     <string name="mrs_mode_remove_account">Remove Mrs account</string>
     <string name="mrs_mode_remove_account_confirm">Remove the Mrs Mode account? This switches back to Normal Mode and forgets the saved session — you\'ll need to log in again to use Mrs Mode.</string>
-    <string name="mrs_mode_not_configured">Log in a Mrs account first (Settings → Account)</string>
+    <string name="mrs_mode_not_configured">Log in a Mrs account first (tap the account icon on Home)</string>
     <string name="mrs_mode_toggle_failed">Couldn\'t switch profile — try again</string>
+    <string name="mrs_mode_database_error">Couldn\'t switch profile (database error) — try restarting the app</string>
+    <string name="mrs_mode_save_error">Couldn\'t switch profile (save failed) — try again</string>
     <string name="mrs_mode_signed_in_as">Signed in as %1$s</string>
     <string name="mrs_mode_not_signed_in">Not signed in</string>
     <string name="mrs_mode_now_playing_hers">🎀 Now playing her music</string>
@@ -1012,7 +1014,11 @@
     <string name="app_logs_desc">Copy or share recent logs for troubleshooting</string>
     <string name="app_logs_empty">No logs recorded yet</string>
     <string name="app_logs_copied">Logs copied to clipboard</string>
+    <string name="app_logs_copied_truncated">Copied most recent logs (too large to copy in full — use Share for everything)</string>
+    <string name="app_logs_copy_failed">Log too large to copy — use Share instead</string>
     <string name="app_logs_share_title">Share app logs</string>
+    <string name="app_logs_errors_only">Errors only</string>
+    <string name="app_logs_errors_only_desc">Only record warnings and errors, skipping routine debug output — takes effect immediately</string>
     <string name="metrolist">TUNETUBE</string>
     <string name="wanna_play_favorite_song">Want to play their favorite song?</string>
     <string name="yeah">Yeah!</string>

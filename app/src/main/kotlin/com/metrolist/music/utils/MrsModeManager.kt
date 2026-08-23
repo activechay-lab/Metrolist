@@ -31,6 +31,7 @@ import com.metrolist.music.constants.NormalInnerTubeCookieKey
 import com.metrolist.music.constants.NormalVisitorDataKey
 import com.metrolist.music.constants.VisitorDataKey
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.db.createActiveProfileTable
 import com.metrolist.music.extensions.toEnum
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.first
@@ -48,18 +49,28 @@ import javax.inject.Singleton
  * already watches reactively. This deliberately never touches the player or
  * media session, so switching never interrupts the currently playing song.
  */
+/** Outcome of [MrsModeManager.toggle], distinguishing *why* a toggle failed. */
+sealed class MrsToggleResult {
+    data class Success(val profile: MrsModeProfile) : MrsToggleResult()
+
+    /** Switching to MRS with no Mrs account configured yet. */
+    data object NotConfigured : MrsToggleResult()
+
+    /** The local liked/blacklisted/downloaded view swap (SQL transaction) threw. */
+    data object DatabaseError : MrsToggleResult()
+
+    /** The DataStore write that persists the swap failed (see [safeDataStoreEdit]). */
+    data object SaveError : MrsToggleResult()
+}
+
 @Singleton
 class MrsModeManager @Inject constructor(
     @ApplicationContext private val context: Context,
     private val database: MusicDatabase,
     private val syncUtils: SyncUtils,
 ) {
-    /**
-     * Flips the active profile. Returns the newly active profile, or null if
-     * the toggle could not proceed (switching to MRS with no Mrs account
-     * configured yet).
-     */
-    suspend fun toggle(): MrsModeProfile? {
+    /** Flips the active profile. See [MrsToggleResult] for what can come back. */
+    suspend fun toggle(): MrsToggleResult {
         val prefs = context.dataStore.data.first()
         val current = prefs[ActiveProfileKey].toEnum(MrsModeProfile.NORMAL)
         val target = current.toggle()
@@ -81,7 +92,7 @@ class MrsModeManager @Inject constructor(
 
         if (target == MrsModeProfile.MRS && prefs[MrsInnerTubeCookieKey].isNullOrBlank()) {
             Timber.w("MrsModeManager: no Mrs account configured, aborting toggle")
-            return null
+            return MrsToggleResult.NotConfigured
         }
 
         // Swap the local liked/blacklisted/downloaded view FIRST (see
@@ -96,8 +107,20 @@ class MrsModeManager @Inject constructor(
         try {
             database.withTransaction { swapActiveProfile(target.name) }
         } catch (e: Exception) {
-            Timber.e(e, "MrsModeManager: DB profile swap to $target failed, aborting toggle")
-            return null
+            // active_profile has no @Entity, so a fresh install that never went
+            // through the MIGRATION_43_44 upgrade path never got the table at
+            // all ("no such table: active_profile"). createActiveProfileTable
+            // is idempotent, so it's safe to just always try it here and retry
+            // once — this is the direct toggle path, independent of whether
+            // MusicService's own startup repair has run yet.
+            Timber.w(e, "MrsModeManager: DB profile swap to $target failed, attempting table repair")
+            try {
+                createActiveProfileTable(database.openHelper.writableDatabase)
+                database.withTransaction { swapActiveProfile(target.name) }
+            } catch (retryException: Exception) {
+                Timber.e(retryException, "MrsModeManager: DB profile swap to $target failed after repair, aborting toggle")
+                return MrsToggleResult.DatabaseError
+            }
         }
 
         val saved = context.safeDataStoreEdit { settings ->
@@ -149,7 +172,7 @@ class MrsModeManager @Inject constructor(
             // DataStore write failed — revert the DB side so it doesn't end up
             // pointed at a profile DataStore never agreed to.
             runCatching { database.withTransaction { swapActiveProfile(current.name) } }
-            return null
+            return MrsToggleResult.SaveError
         }
 
         // Apply the swap to the live YouTube client SYNCHRONOUSLY, rather than
@@ -179,6 +202,6 @@ class MrsModeManager @Inject constructor(
         runCatching { syncUtils.performFullSync() }
             .onFailure { Timber.w(it, "MrsModeManager: post-toggle full sync failed") }
 
-        return target
+        return MrsToggleResult.Success(target)
     }
 }

@@ -230,6 +230,7 @@ abstract class InternalDatabase : RoomDatabase() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
                             applyPragmaSettings(db)
+                            createActiveProfileTable(db)
                         }
 
                         override fun onOpen(db: SupportSQLiteDatabase) {
@@ -254,6 +255,52 @@ abstract class InternalDatabase : RoomDatabase() {
         fun newInternalDatabaseInstance(context: Context, dbName: String = DB_NAME): InternalDatabase =
             build(context, dbName)
 
+    }
+}
+
+// active_profile has no @Entity (see MIGRATION_43_44's doc comment), so it's
+// only ever created by that migration's raw SQL — a genuinely fresh install
+// takes Room's onCreate() path instead of any migration and would otherwise
+// never get this table at all, breaking every Mrs Mode toggle and the
+// song_state_mirror trigger (both reference it) with "no such table:
+// active_profile". Mirrors MIGRATION_44_45's schema, since that's the
+// version any fresh install already starts on.
+internal fun createActiveProfileTable(db: SupportSQLiteDatabase) {
+    try {
+        db.execSQL("CREATE TABLE IF NOT EXISTS active_profile (id INTEGER PRIMARY KEY CHECK (id = 0), profile TEXT NOT NULL)")
+        db.execSQL("INSERT OR IGNORE INTO active_profile (id, profile) VALUES (0, 'NORMAL')")
+        db.execSQL("DROP TRIGGER IF EXISTS song_state_mirror")
+        db.execSQL(
+            """
+            CREATE TRIGGER song_state_mirror
+            AFTER UPDATE OF liked, blacklisted, likedDate, likedReason, blacklistedDate, blacklistReason, isDownloaded, dateDownload ON song
+            WHEN NEW.liked != OLD.liked OR NEW.blacklisted != OLD.blacklisted
+                 OR IFNULL(NEW.likedDate, 0) != IFNULL(OLD.likedDate, 0)
+                 OR IFNULL(NEW.blacklistedDate, 0) != IFNULL(OLD.blacklistedDate, 0)
+                 OR NEW.isDownloaded != OLD.isDownloaded
+                 OR IFNULL(NEW.dateDownload, 0) != IFNULL(OLD.dateDownload, 0)
+            BEGIN
+                INSERT INTO song_profile_state
+                    (songId, profile, liked, likedDate, likedReason, blacklisted, blacklistedDate, blacklistReason, isDownloaded, dateDownload)
+                VALUES (
+                    NEW.id, (SELECT profile FROM active_profile WHERE id = 0),
+                    NEW.liked, NEW.likedDate, NEW.likedReason, NEW.blacklisted, NEW.blacklistedDate, NEW.blacklistReason,
+                    NEW.isDownloaded, NEW.dateDownload
+                )
+                ON CONFLICT(songId, profile) DO UPDATE SET
+                    liked = excluded.liked,
+                    likedDate = excluded.likedDate,
+                    likedReason = excluded.likedReason,
+                    blacklisted = excluded.blacklisted,
+                    blacklistedDate = excluded.blacklistedDate,
+                    blacklistReason = excluded.blacklistReason,
+                    isDownloaded = excluded.isDownloaded,
+                    dateDownload = excluded.dateDownload;
+            END
+            """.trimIndent(),
+        )
+    } catch (e: Exception) {
+        Timber.tag("MusicDatabase").e(e, "Failed to create active_profile table/trigger on fresh install")
     }
 }
 

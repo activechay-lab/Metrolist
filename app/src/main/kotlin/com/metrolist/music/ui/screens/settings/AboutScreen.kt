@@ -40,6 +40,8 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarScrollBehavior
@@ -79,6 +81,7 @@ import com.metrolist.music.BuildConfig
 import com.metrolist.music.LocalPlayerAwareWindowInsets
 import com.metrolist.music.LocalPlayerConnection
 import com.metrolist.music.R
+import com.metrolist.music.constants.LogErrorsOnlyKey
 import com.metrolist.music.playback.PlayerConnection
 import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.IconButton
@@ -86,6 +89,7 @@ import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.utils.backToMain
 import com.metrolist.music.utils.FileLogTree
+import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import java.io.File
@@ -158,6 +162,11 @@ private fun handleEasterEggClick(
         }
     }
 }
+
+// Conservative margin under Binder's ~1MB shared transaction limit — Parcel
+// writes text as UTF-16 (2 bytes/char), so this stays well clear even with
+// other in-flight transactions sharing the same buffer.
+private const val CLIPBOARD_SAFE_CHARS = 200_000
 
 private fun shareAppLogs(context: android.content.Context) {
     try {
@@ -245,7 +254,10 @@ fun AboutScreen(
     val wannaPlayStr = stringResource(R.string.wanna_play_favorite_song)
     val yeahStr = stringResource(R.string.yeah)
     val logsCopiedStr = stringResource(R.string.app_logs_copied)
+    val logsCopiedTruncatedStr = stringResource(R.string.app_logs_copied_truncated)
+    val logsCopyFailedStr = stringResource(R.string.app_logs_copy_failed)
     val logsEmptyStr = stringResource(R.string.app_logs_empty)
+    val (logErrorsOnly, onLogErrorsOnlyChange) = rememberPreference(LogErrorsOnlyKey, false)
     
     val windowInsets = LocalPlayerAwareWindowInsets.current
 
@@ -528,8 +540,22 @@ fun AboutScreen(
                                     if (text.isBlank()) {
                                         coroutineScope.launch { snackbarHostState.showSnackbar(logsEmptyStr) }
                                     } else {
-                                        clipboardManager.setText(AnnotatedString(text))
-                                        coroutineScope.launch { snackbarHostState.showSnackbar(logsCopiedStr) }
+                                        // ClipboardManager.setPrimaryClip() goes over Binder as a
+                                        // single transaction, capped at ~1MB shared across the whole
+                                        // process — the full (up to 1.5MB) log file crashed with
+                                        // TransactionTooLargeException. Keep only the most recent
+                                        // (most relevant for a just-happened crash) slice, well under
+                                        // that limit; Share (FileProvider URI, not raw bytes) has no
+                                        // such cap and stays available for the full file.
+                                        val truncated = text.length > CLIPBOARD_SAFE_CHARS
+                                        val clipText = if (truncated) text.takeLast(CLIPBOARD_SAFE_CHARS) else text
+                                        try {
+                                            clipboardManager.setText(AnnotatedString(clipText))
+                                            val message = if (truncated) logsCopiedTruncatedStr else logsCopiedStr
+                                            coroutineScope.launch { snackbarHostState.showSnackbar(message) }
+                                        } catch (_: Exception) {
+                                            coroutineScope.launch { snackbarHostState.showSnackbar(logsCopyFailedStr) }
+                                        }
                                     }
                                 }
                             ) {
@@ -543,19 +569,40 @@ fun AboutScreen(
                         }
                     },
                     onClick = { shareAppLogs(context) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.bug_report),
+                    title = { Text(stringResource(R.string.app_logs_errors_only)) },
+                    description = { Text(stringResource(R.string.app_logs_errors_only_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = logErrorsOnly,
+                            onCheckedChange = {
+                                onLogErrorsOnlyChange(it)
+                                FileLogTree.errorsOnly.set(it)
+                            },
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(if (logErrorsOnly) R.drawable.check else R.drawable.close),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    }
                 )
             )
         )
 
         Spacer(Modifier.height(48.dp))
-        
+
         Text(
             text = stringResource(R.string.stands_with_palestine),
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        
+
         Spacer(Modifier.height(48.dp))
     }
 

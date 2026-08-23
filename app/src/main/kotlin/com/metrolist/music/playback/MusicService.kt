@@ -186,6 +186,7 @@ import com.metrolist.music.constants.SkipSilenceInstantKey
 import com.metrolist.music.constants.SkipSilenceKey
 import com.metrolist.music.constants.StopMusicOnTaskClearKey
 import com.metrolist.music.db.MusicDatabase
+import com.metrolist.music.db.createActiveProfileTable
 import com.metrolist.music.db.entities.Event
 import com.metrolist.music.db.entities.FormatEntity
 import com.metrolist.music.db.entities.LyricsEntity
@@ -227,6 +228,7 @@ import com.metrolist.music.constants.LoudnessLevel
 import com.metrolist.music.constants.LoudnessLevelKey
 import com.metrolist.music.utils.CoilBitmapLoader
 import com.metrolist.music.utils.MrsModeManager
+import com.metrolist.music.utils.MrsToggleResult
 import com.metrolist.music.utils.NetworkConnectivityObserver
 import com.metrolist.music.utils.ScrobbleManager
 import com.metrolist.music.utils.SyncUtils
@@ -657,8 +659,21 @@ class MusicService :
             val actualProfile = try {
                 database.activeProfileOrNull()
             } catch (e: Exception) {
-                Timber.tag(TAG).w(e, "Startup Mrs Mode profile check failed")
-                null
+                // active_profile has no @Entity, so it only ever gets created by
+                // the MIGRATION_43_44 upgrade path — a fresh install that never
+                // went through that migration (Room's onCreate() path instead)
+                // never got the table at all, which surfaces here as "no such
+                // table: active_profile". createActiveProfileTable is idempotent
+                // (CREATE TABLE/TRIGGER IF NOT EXISTS), so it's safe to just
+                // always try it on any lookup failure and retry once.
+                Timber.tag(TAG).w(e, "Startup Mrs Mode profile check failed, attempting table repair")
+                try {
+                    createActiveProfileTable(database.openHelper.writableDatabase)
+                    database.activeProfileOrNull()
+                } catch (repairException: Exception) {
+                    Timber.tag(TAG).e(repairException, "active_profile table repair failed")
+                    null
+                }
             }
             if (actualProfile != expectedProfile) {
                 Timber.tag(TAG).w(
@@ -2485,23 +2500,27 @@ class MusicService :
     // driving, no searching required.
     fun toggleMrsMode() {
         scope.launch {
-            val newProfile = try {
+            val result = try {
                 mrsModeManager.toggle()
             } catch (e: Exception) {
                 Timber.tag(TAG).e(e, "toggleMrsMode: profile switch failed")
                 toastOnMain(getString(R.string.mrs_mode_toggle_failed))
                 return@launch
             }
-            if (newProfile == null) {
-                Handler(Looper.getMainLooper()).post {
-                    Toast
-                        .makeText(
-                            this@MusicService,
-                            getString(R.string.mrs_mode_not_configured),
-                            Toast.LENGTH_SHORT,
-                        ).show()
+            val newProfile = when (result) {
+                is MrsToggleResult.Success -> result.profile
+                MrsToggleResult.NotConfigured -> {
+                    toastOnMain(getString(R.string.mrs_mode_not_configured))
+                    return@launch
                 }
-                return@launch
+                MrsToggleResult.DatabaseError -> {
+                    toastOnMain(getString(R.string.mrs_mode_database_error))
+                    return@launch
+                }
+                MrsToggleResult.SaveError -> {
+                    toastOnMain(getString(R.string.mrs_mode_save_error))
+                    return@launch
+                }
             }
             updateNotification()
 
