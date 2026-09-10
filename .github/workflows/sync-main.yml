@@ -1,8 +1,5 @@
-name: Sync main with upstream
+name: Sync upstream into TuneTube
 
-# main is kept as a byte-for-byte mirror of metrolistgroup/metrolist's main —
-# never commit to it directly, or this fast-forward-only sync will start
-# failing permanently. All custom changes live on the `custom` branch instead.
 on:
   schedule:
     - cron: '0 6 * * *'
@@ -10,6 +7,12 @@ on:
 
 permissions:
   contents: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -17,12 +20,55 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: main
+          ref: custom
           fetch-depth: 0
 
-      - name: Fast-forward main to upstream
+      - name: Sync main and merge custom
+        id: sync
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/metrolistgroup/metrolist.git
+          git fetch origin main custom
           git fetch upstream main
+
+          git checkout -B main origin/main
           git merge --ff-only upstream/main
           git push origin main
+
+          git checkout -B custom origin/custom
+          if git merge-base --is-ancestor upstream/main custom; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git merge --no-ff --no-edit upstream/main; then
+            git push origin custom
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort || true
+            ISSUE=$(gh issue list --state open --search '"Upstream sync blocked" in:title' --json number --jq '.[0].number')
+            BODY="Automatic merge of upstream/main into custom conflicted at $(git rev-parse --short upstream/main). Resolve locally, push custom, then rerun this workflow."
+            if [ -n "$ISSUE" ]; then
+              gh issue comment "$ISSUE" --body "$BODY"
+            else
+              gh issue create --title "Upstream sync blocked" --body "$BODY"
+            fi
+            exit 1
+          fi
+
+      - name: Close resolved sync blocker
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ISSUE=$(gh issue list --state open --search '"Upstream sync blocked" in:title' --json number --jq '.[0].number')
+          [ -z "$ISSUE" ] || gh issue close "$ISSUE" --comment "Automatic upstream sync is clean again."
+
+      - name: Release merged update
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run release.yml --ref custom

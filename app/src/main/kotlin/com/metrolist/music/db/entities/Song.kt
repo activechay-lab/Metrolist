@@ -31,6 +31,9 @@ constructor(
             "bookmarkedAt",
             "isLocal",
             "isPodcastChannel",
+            "blacklisted",
+            "blacklistedDate",
+            "blacklistReason",
         ],
         associateBy =
             Junction(
