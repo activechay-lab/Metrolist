@@ -63,6 +63,7 @@ import com.metrolist.music.constants.SelectedAppNameIndexKey
 import com.metrolist.music.constants.EnableHighRefreshRateKey
 import com.metrolist.music.constants.EnableLandscapeScalingKey
 import com.metrolist.music.constants.ExperimentalLyricsKey
+import com.metrolist.music.constants.ForceBottomNavBarKey
 import com.metrolist.music.constants.GridItemSize
 import com.metrolist.music.constants.GridItemsSizeKey
 import com.metrolist.music.constants.HidePlayerThumbnailKey
@@ -281,6 +282,11 @@ fun AppearanceSettings(
             defaultValue = GridItemSize.SMALL,
         )
 
+    val (forceBottomNav, onForceBottomNavChange) =
+        rememberPreference(
+            ForceBottomNavBarKey,
+            defaultValue = false,
+        )
     val (slimNav, onSlimNavChange) =
         rememberPreference(
             SlimNavBarKey,
@@ -1701,6 +1707,27 @@ fun AppearanceSettings(
                             )
                         },
                         onClick = { onSwipeToRemoveSongChange(!swipeToRemoveSong) },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.nav_bar),
+                        title = { Text(stringResource(R.string.force_bottom_navbar)) },
+                        trailingContent = {
+                            Switch(
+                                checked = forceBottomNav,
+                                onCheckedChange = onForceBottomNavChange,
+                                thumbContent = {
+                                    Icon(
+                                        painter =
+                                            painterResource(
+                                                id = if (forceBottomNav) R.drawable.check else R.drawable.close,
+                                            ),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(SwitchDefaults.IconSize),
+                                    )
+                                },
+                            )
+                        },
+                        onClick = { onForceBottomNavChange(!forceBottomNav) },
                     ),
                     Material3SettingsItem(
                         icon = painterResource(R.drawable.nav_bar),
