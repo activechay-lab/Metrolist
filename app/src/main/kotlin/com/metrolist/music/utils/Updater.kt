@@ -39,7 +39,7 @@ object Updater {
     private var cachedAllReleases: List<ReleaseInfo> = emptyList()
     
     private const val CHECK_INTERVAL_MILLIS = 2 * 60 * 60 * 1000L // 2 hours
-    private const val GITHUB_API_BASE = "https://api.github.com/repos/MetrolistGroup/Metrolist"
+    private const val GITHUB_API_BASE = "https://api.github.com/repos/activechay-lab/Metrolist"
     private const val KMP_LATEST_RELEASE_URL = "https://api.github.com/repos/MetrolistGroup/Metrolist-KMP/releases/latest"
     private const val KMP_APK_NAME = "Metrolist.apk"
 
@@ -83,7 +83,7 @@ object Updater {
     /**
      * Parse release assets from GitHub API response
      */
-    private fun parseAssets(assetsArray: JSONArray): List<ReleaseAsset> {
+    internal fun parseAssets(assetsArray: JSONArray): List<ReleaseAsset> {
         val assets = mutableListOf<ReleaseAsset>()
         
         for (i in 0 until assetsArray.length()) {
@@ -98,6 +98,8 @@ object Updater {
             
             // Parse architecture and variant from filename
             val (arch, variant) = when {
+                name == "TuneTube.apk" -> "universal" to "foss"
+                name == "TuneTube-with-Google-Cast.apk" -> "universal" to "gms"
                 name == "Metrolist.apk" -> "universal" to "foss"
                 name == "Metrolist-with-Google-Cast.apk" -> "universal" to "gms"
                 name.startsWith("app-") && name.endsWith("-release.apk") -> {

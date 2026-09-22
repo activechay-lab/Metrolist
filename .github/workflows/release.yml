@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   check-version:
@@ -111,6 +111,7 @@ jobs:
         env:
           METROLIST_APPLICATION_ID: com.metrolist.music
           METROLIST_APP_NAME: TuneTube
+          METROLIST_BUILD_NUMBER: ${{ github.run_number }}
           PULL_REQUEST: "false"
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
@@ -218,8 +219,8 @@ jobs:
             cat release_notes.md
           } > attributed_release_notes.md
 
-          gh release create "custom-v${{ needs.check-version.outputs.new_version }}-${{ github.run_number }}" \
-            --title "Custom build ${{ needs.check-version.outputs.new_version }} (#${{ github.run_number }})" \
+          gh release create "tunetube-v${{ needs.check-version.outputs.new_version }}.${{ github.run_number }}" \
+            --title "TuneTube ${{ needs.check-version.outputs.new_version }}.${{ github.run_number }}" \
             --notes-file attributed_release_notes.md \
             --latest \
             release_files/*.apk

@@ -16,6 +16,7 @@ val buildCommit =
         ?.takeIf { it.matches(Regex("[0-9a-fA-F]{7,40}")) }
         ?.take(7)
         ?.lowercase()
+val buildNumber = System.getenv("METROLIST_BUILD_NUMBER")?.toIntOrNull()?.takeIf { it > 0 }
 val debugKeystorePathOverride = System.getenv("METROLIST_DEBUG_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
 val debugKeystorePassword = System.getenv("METROLIST_DEBUG_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
 val debugKeyAlias = System.getenv("METROLIST_DEBUG_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "androiddebugkey"
@@ -41,7 +42,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 153
-        versionName = "13.7.0"
+        versionName = buildNumber?.let { "13.7.0.$it" } ?: "13.7.0"
         val baseVersionName = requireNotNull(versionName)
         buildConfigField("String", "BASE_VERSION_NAME", "\"$baseVersionName\"")
         buildCommit?.let { versionName = "$baseVersionName+$it" }
@@ -61,6 +62,7 @@ android {
         buildConfigField("String", "LASTFM_API_KEY", "\"$lastFmKey\"")
         buildConfigField("String", "LASTFM_SECRET", "\"$lastFmSecret\"")
         buildConfigField("String", "ARCHITECTURE", "\"universal\"")
+        buildConfigField("Boolean", "TUNETUBE_UPDATER", "true")
         buildConfigField("Long", "DISCORD_APP_ID", "1447278780795064401L")
     }
 

@@ -518,9 +518,13 @@ class MainActivity : FragmentActivity() {
                                 }
                             }
                     val kmpUpdate =
-                        Updater.getLatestKmpRelease().getOrNull()?.let { release ->
-                            release.assets.firstOrNull()?.let { asset ->
-                                AvailableUpdate(release, asset.downloadUrl, isKmp = true)
+                        if (BuildConfig.TUNETUBE_UPDATER) {
+                            null
+                        } else {
+                            Updater.getLatestKmpRelease().getOrNull()?.let { release ->
+                                release.assets.firstOrNull()?.let { asset ->
+                                    AvailableUpdate(release, asset.downloadUrl, isKmp = true)
+                                }
                             }
                         }
                     val update = kmpUpdate ?: standaloneUpdate

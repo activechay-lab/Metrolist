@@ -5,9 +5,22 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.json.JSONArray
 
 @RunWith(RobolectricTestRunner::class)
 class UpdaterTest {
+    @Test
+    fun parsesTuneTubeReleaseArtifacts() {
+        val assets = JSONArray(
+            """[{"name":"TuneTube.apk","browser_download_url":"https://example.com/TuneTube.apk","size":42},{"name":"TuneTube-with-Google-Cast.apk","browser_download_url":"https://example.com/TuneTube-with-Google-Cast.apk","size":43}]""",
+        )
+
+        assertEquals(
+            listOf("foss", "gms"),
+            Updater.parseAssets(assets).map { it.variant },
+        )
+    }
+
     @Test
     fun parsesKmpReleaseArtifact() {
         val response =
