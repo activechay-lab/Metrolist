@@ -17,6 +17,7 @@ val buildCommit =
         ?.take(7)
         ?.lowercase()
 val buildNumber = System.getenv("METROLIST_BUILD_NUMBER")?.toIntOrNull()?.takeIf { it > 0 }
+val baseVersionName = "13.7.0"
 val debugKeystorePathOverride = System.getenv("METROLIST_DEBUG_KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
 val debugKeystorePassword = System.getenv("METROLIST_DEBUG_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() } ?: "android"
 val debugKeyAlias = System.getenv("METROLIST_DEBUG_KEY_ALIAS")?.takeIf { it.isNotBlank() } ?: "androiddebugkey"
@@ -42,8 +43,7 @@ android {
         minSdk = 26
         targetSdk = 36
         versionCode = 153
-        versionName = buildNumber?.let { "13.7.0.$it" } ?: "13.7.0"
-        val baseVersionName = requireNotNull(versionName)
+        versionName = buildNumber?.let { "$baseVersionName.$it" } ?: baseVersionName
         buildConfigField("String", "BASE_VERSION_NAME", "\"$baseVersionName\"")
         buildCommit?.let { versionName = "$baseVersionName+$it" }
         resValue("string", "app_name", appNameOverride ?: "Metrolist")

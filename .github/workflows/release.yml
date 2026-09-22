@@ -44,7 +44,7 @@ jobs:
           # since it's unevaluated Kotlin string interpolation at grep time,
           # not an actual version. That previously produced two matches and
           # corrupted $GITHUB_OUTPUT.
-          NEW_VERSION=$(grep -oP 'versionName\s*=\s*"\K[0-9][^"]*' app/build.gradle.kts | head -n1 || echo "")
+          NEW_VERSION=$(grep -oP 'val baseVersionName\s*=\s*"\K[0-9][^"]*' app/build.gradle.kts | head -n1 || echo "")
           VERSION_CODE=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts | head -n1 || echo "")
 
           if [ -z "$NEW_VERSION" ]; then
